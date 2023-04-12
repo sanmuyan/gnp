@@ -9,6 +9,7 @@ do
   cp -f ../conf/config-example.yaml gnp/
   GOOS=$os GOARCH=$arch go build -o gnp/gnps  ../cmd/server/server.go
   GOOS=$os GOARCH=$arch go build -o gnp/gnpc  ../cmd/client/client.go
+  chmod +x -R gnp
   tar -zcvf pkg/gnp-$os-$arch.tar.gz gnp
   rm -f gnp/gnp*
 done
@@ -20,6 +21,7 @@ do
   cp -f ../conf/config-example.yaml gnp/
   GOOS=$os GOARCH=$arch go build -o gnp/gnps  ../cmd/server/server.go
   GOOS=$os GOARCH=$arch go build -o gnp/gnpc  ../cmd/client/client.go
+  chmod +x -R gnp
   tar -zcvf pkg/gnp-$os-$arch.tar.gz gnp
   rm -f gnp/gnp*
 done
@@ -29,8 +31,8 @@ arch_list=(amd64)
 for arch in ${arch_list[*]}
 do
   cp -f ../conf/config-example.yaml gnp/
-  GOOS=$os GOARCH=$arch go build -o gnp/gnps  ../cmd/server/server.go
-  GOOS=$os GOARCH=$arch go build -o gnp/gnpc  ../cmd/client/client.go
+  GOOS=$os GOARCH=$arch go build -o gnp/gnps.exe  ../cmd/server/server.go
+  GOOS=$os GOARCH=$arch go build -o gnp/gnpc.exe  ../cmd/client/client.go
   tar -zcvf pkg/gnp-$os-$arch.tar.gz gnp
   rm -f gnp/gnp*
 done
