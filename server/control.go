@@ -3,19 +3,19 @@ package server
 import (
 	"context"
 	"github.com/sirupsen/logrus"
-	"gnp/config"
 	"gnp/message"
+	"gnp/server/config"
 	"gnp/util"
 	"net"
 )
 
 type Control struct {
-	Config         config.Server
+	Config         config.Config
 	userConnPool   map[string]chan net.Conn
 	tunnelConnPool map[string]chan net.Conn
 }
 
-func NewControl(config config.Server) *Control {
+func NewControl(config config.Config) *Control {
 	return &Control{
 		Config:         config,
 		userConnPool:   make(map[string]chan net.Conn),
@@ -119,9 +119,8 @@ func (c *Control) start() {
 	c.handelControlConn(listener)
 }
 
-func Run(configFile string) {
-	conf := config.NewConfig(configFile)
-	s := NewControl(conf.Server)
+func Run() {
+	s := NewControl(config.Conf)
 	go s.start()
 	select {}
 }

@@ -4,7 +4,8 @@
 
 ## 配置文件
 
-conf/example-config.yaml
+conf/gnpc-example.yaml
+conf/gnps-example.yaml
 
 ## 快速启动
 

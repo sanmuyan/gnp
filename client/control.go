@@ -4,7 +4,7 @@ import (
 	"context"
 	"errors"
 	"github.com/sirupsen/logrus"
-	"gnp/config"
+	"gnp/client/config"
 	"gnp/message"
 	"gnp/util"
 	"net"
@@ -13,14 +13,14 @@ import (
 
 type Control struct {
 	ctlConn     net.Conn
-	Config      config.Client
+	Config      config.Config
 	done        chan bool
 	keepAliveCh chan bool
 	ctx         context.Context
 	cancel      context.CancelFunc
 }
 
-func NewControl(config config.Client) *Control {
+func NewControl(config config.Config) *Control {
 	return &Control{
 		Config:      config,
 		done:        make(chan bool),
@@ -179,9 +179,8 @@ func (c *Control) start() {
 	<-ctx.Done()
 }
 
-func Run(configFile string) {
-	conf := config.NewConfig(configFile)
-	c := NewControl(conf.Client)
+func Run() {
+	c := NewControl(config.Conf)
 	go c.start()
 	for {
 		select {

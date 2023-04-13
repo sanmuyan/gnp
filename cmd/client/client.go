@@ -1,14 +1,7 @@
 package main
 
-import (
-	"flag"
-	"gnp/client"
-)
+import "gnp/client/cmd"
 
 func main() {
-	var c *string
-	c = flag.String("c", "./config.yaml", "config")
-	flag.Parse()
-
-	client.Run(*c)
+	cmd.Execute()
 }
