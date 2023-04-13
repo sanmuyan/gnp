@@ -2,8 +2,8 @@ package client
 
 import (
 	"github.com/sirupsen/logrus"
-	"gnp/message"
-	"gnp/util"
+	"gnp/pkg/message"
+	"gnp/pkg/util"
 	"net"
 	"sync"
 )

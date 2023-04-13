@@ -4,23 +4,23 @@ import (
 	"context"
 	"errors"
 	"github.com/sirupsen/logrus"
-	"gnp/client/config"
-	"gnp/message"
-	"gnp/util"
+	"gnp/pkg/config"
+	message2 "gnp/pkg/message"
+	"gnp/pkg/util"
 	"net"
 	"time"
 )
 
 type Control struct {
 	ctlConn     net.Conn
-	Config      config.Config
+	Config      config.ServerConfig
 	done        chan bool
 	keepAliveCh chan bool
 	ctx         context.Context
 	cancel      context.CancelFunc
 }
 
-func NewControl(config config.Config) *Control {
+func NewControl(config config.ServerConfig) *Control {
 	return &Control{
 		Config:      config,
 		done:        make(chan bool),
@@ -30,15 +30,15 @@ func NewControl(config config.Config) *Control {
 func (c *Control) registryService() {
 	// 请求服务器注册代理服务
 	for _, item := range c.Config.Services {
-		err := c.SendCtl(c.ctlConn, message.NewMessage(&message.Options{
+		err := c.SendCtl(c.ctlConn, message2.NewMessage(&message2.Options{
 			Auth: util.CreatePassword(c.Config.Password),
-			Service: &message.Service{
+			Service: &message2.Service{
 				ProxyPort: item.ProxyPort,
 				LocalAddr: item.LocalAddr,
 				Network:   item.Network,
 			},
 			SessionID: item.Network + item.ProxyPort,
-		}), message.NewServiceCtl)
+		}), message2.NewServiceCtl)
 		if err != nil {
 			logrus.Errorln("write control message", err)
 		}
@@ -52,7 +52,7 @@ func (c *Control) keepAlive() {
 	var count int
 	go func() {
 		for range t.C {
-			_ = c.SendCtl(c.ctlConn, message.NewMessage(&message.Options{}), message.KeepAliveCtl)
+			_ = c.SendCtl(c.ctlConn, message2.NewMessage(&message2.Options{}), message2.KeepAliveCtl)
 		}
 	}()
 	for {
@@ -72,7 +72,7 @@ func (c *Control) keepAlive() {
 	}
 }
 
-func (c *Control) SendCtl(conn net.Conn, msg *message.Message, ctl int32) error {
+func (c *Control) SendCtl(conn net.Conn, msg *message2.Message, ctl int32) error {
 	msg.Ctl = ctl
 	_, err := conn.Write(msg.EncodeTCP())
 	if err != nil {
@@ -81,12 +81,12 @@ func (c *Control) SendCtl(conn net.Conn, msg *message.Message, ctl int32) error 
 	return nil
 }
 
-func (c *Control) controller(msg *message.Message) {
+func (c *Control) controller(msg *message2.Message) {
 	// 处理服务端控制消息
 	switch msg.GetCtl() {
-	case message.ServiceReadyCtl:
+	case message2.ServiceReadyCtl:
 		logrus.Infoln("service ready", msg.Service.Network, msg.Service.ProxyPort)
-	case message.NewTunnelCtl:
+	case message2.NewTunnelCtl:
 		// 新建隧道连接
 		switch msg.Service.Network {
 		case "tcp":
@@ -94,7 +94,7 @@ func (c *Control) controller(msg *message.Message) {
 		case "udp":
 			NewUDPTunnel(c, msg).Process()
 		}
-	case message.KeepAliveCtl:
+	case message2.KeepAliveCtl:
 		c.keepAliveCh <- true
 	}
 }
@@ -105,7 +105,7 @@ func (c *Control) handelConn() {
 		c.cancel()
 	}()
 	logrus.Infoln("connect server", net.JoinHostPort(c.Config.ServerHost, c.Config.ServerPort))
-	message.ReadMessageTCP(c.ctlConn, func(msg *message.Message, err error) (exit bool) {
+	message2.ReadMessageTCP(c.ctlConn, func(msg *message2.Message, err error) (exit bool) {
 		if err != nil {
 			logrus.Debugln("read control message", err)
 			return true
@@ -122,8 +122,8 @@ func (c *Control) close() {
 
 func (c *Control) login() error {
 	sendAuth := util.CreatePassword(c.Config.Password)
-	_, err := c.ctlConn.Write(message.NewMessage(&message.Options{
-		Ctl:  message.LoginCtl,
+	_, err := c.ctlConn.Write(message2.NewMessage(&message2.Options{
+		Ctl:  message2.LoginCtl,
 		Auth: sendAuth,
 	}).EncodeTCP())
 	if err != nil {
@@ -131,13 +131,13 @@ func (c *Control) login() error {
 	}
 	res := make(chan error)
 	go func() {
-		message.ReadMessageTCP(c.ctlConn, func(msg *message.Message, err error) (exit bool) {
+		message2.ReadMessageTCP(c.ctlConn, func(msg *message2.Message, err error) (exit bool) {
 			if err != nil {
 				res <- err
 				return true
 			}
 			if msg != nil {
-				if msg.GetCtl() == message.LoginCtl {
+				if msg.GetCtl() == message2.LoginCtl {
 					if len(c.Config.Password) > 0 {
 						if msg.Auth == sendAuth || !util.ComparePassword(msg.Auth, c.Config.Password) {
 							res <- errors.New("deny server")
@@ -180,7 +180,7 @@ func (c *Control) start() {
 }
 
 func Run() {
-	c := NewControl(config.Conf)
+	c := NewControl(config.ServerConf)
 	go c.start()
 	for {
 		select {

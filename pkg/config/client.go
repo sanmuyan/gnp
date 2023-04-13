@@ -1,6 +1,6 @@
 package config
 
-type Config struct {
+type ClientConfig struct {
 	LogLevel         int    `mapstructure:"log_level"`
 	ServerBind       string `mapstructure:"server_bind"`
 	ServerPort       string `mapstructure:"server_port"`
@@ -10,4 +10,4 @@ type Config struct {
 	ClientTimeOut    int    `mapstructure:"client_time_out"`
 }
 
-var Conf Config
+var ClientConf ClientConfig

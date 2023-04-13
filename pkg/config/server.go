@@ -6,7 +6,7 @@ type Service struct {
 	Network   string `mapstructure:"network"`
 }
 
-type Config struct {
+type ServerConfig struct {
 	LogLevel           int       `mapstructure:"log_level"`
 	ServerHost         string    `mapstructure:"server_host"`
 	ServerPort         string    `mapstructure:"server_port"`
@@ -17,4 +17,4 @@ type Config struct {
 	UDPTunnelTimeOut   int       `mapstructure:"udp_tunnel_time_out"`
 }
 
-var Conf Config
+var ServerConf ServerConfig

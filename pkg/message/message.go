@@ -3,7 +3,7 @@ package message
 import (
 	"bufio"
 	"github.com/sirupsen/logrus"
-	"gnp/util"
+	"gnp/pkg/util"
 	"google.golang.org/protobuf/proto"
 	"net"
 	"sync"

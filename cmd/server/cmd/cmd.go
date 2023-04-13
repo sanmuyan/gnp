@@ -1,15 +1,13 @@
 package cmd
 
 import (
-	"errors"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
-	"gnp/client"
-	"gnp/client/config"
+	"gnp/pkg/config"
+	"gnp/server"
 	"path"
 	"runtime"
-	"strings"
 )
 
 var cmdReady bool
@@ -20,25 +18,27 @@ var rootCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		cmdReady = true
 	},
-	Example: "gnpc -c config.yaml\ngnpc --services tcp,127.0.0.1:3389,6100 --services udp,127.0.0.1:3389,6100 --server-host 127.0.0.1 --server-port 6000",
+	Example: "gnps -c config.yaml\ngnps --server-bind 0.0.0.0 --server-port 6000",
 }
 
 var configFile string
 
 const (
-	logLevel           = 4
-	udpTunnelTimeOut   = 30
-	keepAlivePeriod    = 2
-	KeepAliveMaxFailed = 3
+	logLevel         = 4
+	serverBind       = "0.0.0.0"
+	serverPort       = 6000
+	allowPorts       = "1-65535"
+	udpTunnelTimeOut = 30
+	clientTimeOut    = 30
 )
 
 func init() {
 	rootCmd.Flags().StringVarP(&configFile, "config", "c", "", "config file")
 	rootCmd.Flags().IntP("log-level", "l", logLevel, "log level")
-	rootCmd.Flags().StringP("server-host", "s", "", "server bind address")
-	rootCmd.Flags().IntP("server-port", "p", 0, "server bind port")
+	rootCmd.Flags().StringP("server-bind", "s", serverBind, "server bind address")
+	rootCmd.Flags().IntP("server-port", "p", serverPort, "server bind port")
 	rootCmd.Flags().String("password", "", "password")
-	rootCmd.Flags().StringArray("services", nil, "services")
+	rootCmd.Flags().String("allow-ports", allowPorts, "allow ports")
 }
 
 func initConfig() error {
@@ -53,9 +53,11 @@ func initConfig() error {
 
 	viper.SetConfigName("config")
 	viper.SetDefault("log_level", logLevel)
+	viper.SetDefault("server_bind", serverBind)
+	viper.SetDefault("server_port", serverPort)
+	viper.SetDefault("allow_ports", allowPorts)
 	viper.SetDefault("udp_tunnel_time_out", udpTunnelTimeOut)
-	viper.SetDefault("keep_alive_period", keepAlivePeriod)
-	viper.SetDefault("keep_alive_max_failed", KeepAliveMaxFailed)
+	viper.SetDefault("client_time_out", clientTimeOut)
 
 	if len(configFile) > 0 {
 		viper.SetConfigFile(configFile)
@@ -65,48 +67,20 @@ func initConfig() error {
 		}
 	} else {
 		_ = viper.BindPFlag("log_level", rootCmd.Flags().Lookup("log-level"))
-		_ = viper.BindPFlag("server_host", rootCmd.Flags().Lookup("server-host"))
+		_ = viper.BindPFlag("server_bind", rootCmd.Flags().Lookup("server-bind"))
 		_ = viper.BindPFlag("server_port", rootCmd.Flags().Lookup("server-port"))
 		_ = viper.BindPFlag("password", rootCmd.Flags().Lookup("password"))
-
-		services, err := rootCmd.Flags().GetStringArray("services")
-		if err != nil {
-			return err
-		}
-
-		for _, service := range services {
-			parts := strings.Split(service, ",")
-			if len(parts) == 3 {
-				config.Conf.Services = append(config.Conf.Services, config.Service{
-					Network:   parts[0],
-					LocalAddr: parts[1],
-					ProxyPort: parts[2],
-				})
-			}
-		}
+		_ = viper.BindPFlag("allow_ports", rootCmd.Flags().Lookup("allow-ports"))
 	}
 
-	err := viper.Unmarshal(&config.Conf)
+	err := viper.Unmarshal(&config.ClientConf)
 	if err != nil {
 		return err
 	}
-	logrus.SetLevel(logrus.Level(config.Conf.LogLevel))
-	if logrus.Level(config.Conf.LogLevel) >= logrus.DebugLevel {
+	logrus.SetLevel(logrus.Level(config.ClientConf.LogLevel))
+	if logrus.Level(config.ClientConf.LogLevel) >= logrus.DebugLevel {
 		logrus.SetReportCaller(true)
 	}
-
-	if len(config.Conf.ServerHost) == 0 {
-		return errors.New("server host is empty")
-	}
-
-	if len(config.Conf.ServerPort) == 0 {
-		return errors.New("server port is empty")
-	}
-
-	if len(config.Conf.Services) == 0 {
-		return errors.New("services is empty")
-	}
-
 	return nil
 }
 
@@ -119,7 +93,7 @@ func Execute() {
 		if err != nil {
 			logrus.Fatal(err)
 		}
-		logrus.Debugf("config %+v", config.Conf)
-		client.Run()
+		logrus.Debugf("config %+v", config.ClientConf)
+		server.Run()
 	}
 }

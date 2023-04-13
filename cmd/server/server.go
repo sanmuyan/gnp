@@ -1,6 +1,8 @@
 package main
 
-import "gnp/server/cmd"
+import (
+	"gnp/cmd/server/cmd"
+)
 
 func main() {
 	cmd.Execute()

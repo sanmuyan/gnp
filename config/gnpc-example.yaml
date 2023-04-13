@@ -1,0 +1,20 @@
+# 日志级别 0-6
+log_level: 4
+# 会话保持间隔
+keep_alive_period: 1
+# 会话保持最大错误
+keep_alive_max_failed: 3
+# 鉴权密码
+password: 123456
+# 服务端地址
+server_host: 1.1.1.1
+# 服务端端口
+server_port: 6000
+# 服务列表
+services:
+  # 服务端代理端口
+  - proxy_port: 6100
+    # 本地地址
+    local_addr: 127.0.0.1:22
+  - proxy_port: 6101
+    local_addr: 127.0.0.1:8080
