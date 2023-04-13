@@ -52,7 +52,6 @@ func initConfig() error {
 	})
 
 	viper.SetConfigName("config")
-	viper.SetDefault("log_level", logLevel)
 	viper.SetDefault("udp_tunnel_time_out", udpTunnelTimeOut)
 	viper.SetDefault("keep_alive_period", keepAlivePeriod)
 	viper.SetDefault("keep_alive_max_failed", KeepAliveMaxFailed)
@@ -63,33 +62,33 @@ func initConfig() error {
 		if err != nil {
 			return err
 		}
-	} else {
-		_ = viper.BindPFlag("log_level", rootCmd.Flags().Lookup("log-level"))
-		_ = viper.BindPFlag("server_host", rootCmd.Flags().Lookup("server-host"))
-		_ = viper.BindPFlag("server_port", rootCmd.Flags().Lookup("server-port"))
-		_ = viper.BindPFlag("password", rootCmd.Flags().Lookup("password"))
-
-		services, err := rootCmd.Flags().GetStringArray("services")
-		if err != nil {
-			return err
-		}
-
-		for _, service := range services {
-			parts := strings.Split(service, ",")
-			if len(parts) == 3 {
-				config.ServerConf.Services = append(config.ServerConf.Services, config.Service{
-					Network:   parts[0],
-					LocalAddr: parts[1],
-					ProxyPort: parts[2],
-				})
-			}
-		}
 	}
+	_ = viper.BindPFlag("log_level", rootCmd.Flags().Lookup("log-level"))
+	_ = viper.BindPFlag("server_host", rootCmd.Flags().Lookup("server-host"))
+	_ = viper.BindPFlag("server_port", rootCmd.Flags().Lookup("server-port"))
+	_ = viper.BindPFlag("password", rootCmd.Flags().Lookup("password"))
 
 	err := viper.Unmarshal(&config.ServerConf)
 	if err != nil {
 		return err
 	}
+
+	services, err := rootCmd.Flags().GetStringArray("services")
+	if err != nil {
+		return err
+	}
+
+	for _, service := range services {
+		parts := strings.Split(service, ",")
+		if len(parts) == 3 {
+			config.ServerConf.Services = append(config.ServerConf.Services, config.Service{
+				Network:   parts[0],
+				LocalAddr: parts[1],
+				ProxyPort: parts[2],
+			})
+		}
+	}
+
 	logrus.SetLevel(logrus.Level(config.ServerConf.LogLevel))
 	if logrus.Level(config.ServerConf.LogLevel) >= logrus.DebugLevel {
 		logrus.SetReportCaller(true)

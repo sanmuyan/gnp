@@ -52,10 +52,6 @@ func initConfig() error {
 	})
 
 	viper.SetConfigName("config")
-	viper.SetDefault("log_level", logLevel)
-	viper.SetDefault("server_bind", serverBind)
-	viper.SetDefault("server_port", serverPort)
-	viper.SetDefault("allow_ports", allowPorts)
 	viper.SetDefault("udp_tunnel_time_out", udpTunnelTimeOut)
 	viper.SetDefault("client_time_out", clientTimeOut)
 
@@ -65,13 +61,13 @@ func initConfig() error {
 		if err != nil {
 			return err
 		}
-	} else {
-		_ = viper.BindPFlag("log_level", rootCmd.Flags().Lookup("log-level"))
-		_ = viper.BindPFlag("server_bind", rootCmd.Flags().Lookup("server-bind"))
-		_ = viper.BindPFlag("server_port", rootCmd.Flags().Lookup("server-port"))
-		_ = viper.BindPFlag("password", rootCmd.Flags().Lookup("password"))
-		_ = viper.BindPFlag("allow_ports", rootCmd.Flags().Lookup("allow-ports"))
 	}
+
+	_ = viper.BindPFlag("log_level", rootCmd.Flags().Lookup("log-level"))
+	_ = viper.BindPFlag("server_bind", rootCmd.Flags().Lookup("server-bind"))
+	_ = viper.BindPFlag("server_port", rootCmd.Flags().Lookup("server-port"))
+	_ = viper.BindPFlag("password", rootCmd.Flags().Lookup("password"))
+	_ = viper.BindPFlag("allow_ports", rootCmd.Flags().Lookup("allow-ports"))
 
 	err := viper.Unmarshal(&config.ClientConf)
 	if err != nil {

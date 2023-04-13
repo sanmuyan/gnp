@@ -1,5 +1,5 @@
 .id*
 .vs*
-/conf/*dev.yaml
+/config/*-dev.yaml
 /build/gnp
 /build/pkg
