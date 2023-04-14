@@ -30,13 +30,15 @@ const (
 	udpTunnelTimeOut   = 30
 	keepAlivePeriod    = 2
 	KeepAliveMaxFailed = 3
+	serverHost         = "127.0.0.1"
+	serverPort         = 6000
 )
 
 func init() {
 	rootCmd.Flags().StringVarP(&configFile, "config", "c", "", "config file")
 	rootCmd.Flags().IntP("log-level", "l", logLevel, "log level")
-	rootCmd.Flags().StringP("server-host", "s", "", "server bind address")
-	rootCmd.Flags().IntP("server-port", "p", 0, "server bind port")
+	rootCmd.Flags().StringP("server-host", "s", serverHost, "server bind address")
+	rootCmd.Flags().IntP("server-port", "p", serverPort, "server bind port")
 	rootCmd.Flags().String("password", "", "password")
 	rootCmd.Flags().StringArray("services", nil, "services")
 }

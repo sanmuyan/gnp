@@ -7,7 +7,7 @@ keep_alive_max_failed: 3
 # 鉴权密码
 password: 123456
 # 服务端地址
-server_host: 1.1.1.1
+server_host: 127.0.0.1
 # 服务端端口
 server_port: 6000
 # 服务列表
