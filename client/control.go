@@ -5,7 +5,7 @@ import (
 	"errors"
 	"github.com/sirupsen/logrus"
 	"gnp/pkg/config"
-	message2 "gnp/pkg/message"
+	"gnp/pkg/message"
 	"gnp/pkg/util"
 	"net"
 	"time"
@@ -30,15 +30,15 @@ func NewControl(config config.ServerConfig) *Control {
 func (c *Control) registryService() {
 	// 请求服务器注册代理服务
 	for _, item := range c.Config.Services {
-		err := c.SendCtl(c.ctlConn, message2.NewMessage(&message2.Options{
+		err := c.SendCtl(c.ctlConn, message.NewMessage(&message.Options{
 			Auth: util.CreatePassword(c.Config.Password),
-			Service: &message2.Service{
+			Service: &message.Service{
 				ProxyPort: item.ProxyPort,
 				LocalAddr: item.LocalAddr,
 				Network:   item.Network,
 			},
 			SessionID: item.Network + item.ProxyPort,
-		}), message2.NewServiceCtl)
+		}), message.NewServiceCtl)
 		if err != nil {
 			logrus.Errorln("write control message", err)
 		}
@@ -52,7 +52,7 @@ func (c *Control) keepAlive() {
 	var count int
 	go func() {
 		for range t.C {
-			_ = c.SendCtl(c.ctlConn, message2.NewMessage(&message2.Options{}), message2.KeepAliveCtl)
+			_ = c.SendCtl(c.ctlConn, message.NewMessage(&message.Options{}), message.KeepAliveCtl)
 		}
 	}()
 	for {
@@ -72,7 +72,7 @@ func (c *Control) keepAlive() {
 	}
 }
 
-func (c *Control) SendCtl(conn net.Conn, msg *message2.Message, ctl int32) error {
+func (c *Control) SendCtl(conn net.Conn, msg *message.Message, ctl int32) error {
 	msg.Ctl = ctl
 	_, err := conn.Write(msg.EncodeTCP())
 	if err != nil {
@@ -81,12 +81,12 @@ func (c *Control) SendCtl(conn net.Conn, msg *message2.Message, ctl int32) error
 	return nil
 }
 
-func (c *Control) controller(msg *message2.Message) {
+func (c *Control) controller(msg *message.Message) {
 	// 处理服务端控制消息
 	switch msg.GetCtl() {
-	case message2.ServiceReadyCtl:
+	case message.ServiceReadyCtl:
 		logrus.Infoln("service ready", msg.Service.Network, msg.Service.ProxyPort)
-	case message2.NewTunnelCtl:
+	case message.NewTunnelCtl:
 		// 新建隧道连接
 		switch msg.Service.Network {
 		case "tcp":
@@ -94,7 +94,7 @@ func (c *Control) controller(msg *message2.Message) {
 		case "udp":
 			NewUDPTunnel(c, msg).Process()
 		}
-	case message2.KeepAliveCtl:
+	case message.KeepAliveCtl:
 		c.keepAliveCh <- true
 	}
 }
@@ -105,7 +105,7 @@ func (c *Control) handelConn() {
 		c.cancel()
 	}()
 	logrus.Infoln("connect server", net.JoinHostPort(c.Config.ServerHost, c.Config.ServerPort))
-	message2.ReadMessageTCP(c.ctlConn, func(msg *message2.Message, err error) (exit bool) {
+	message.ReadMessageTCP(c.ctlConn, func(msg *message.Message, err error) (exit bool) {
 		if err != nil {
 			logrus.Debugln("read control message", err)
 			return true
@@ -122,8 +122,8 @@ func (c *Control) close() {
 
 func (c *Control) login() error {
 	sendAuth := util.CreatePassword(c.Config.Password)
-	_, err := c.ctlConn.Write(message2.NewMessage(&message2.Options{
-		Ctl:  message2.LoginCtl,
+	_, err := c.ctlConn.Write(message.NewMessage(&message.Options{
+		Ctl:  message.LoginCtl,
 		Auth: sendAuth,
 	}).EncodeTCP())
 	if err != nil {
@@ -131,13 +131,13 @@ func (c *Control) login() error {
 	}
 	res := make(chan error)
 	go func() {
-		message2.ReadMessageTCP(c.ctlConn, func(msg *message2.Message, err error) (exit bool) {
+		message.ReadMessageTCP(c.ctlConn, func(msg *message.Message, err error) (exit bool) {
 			if err != nil {
 				res <- err
 				return true
 			}
 			if msg != nil {
-				if msg.GetCtl() == message2.LoginCtl {
+				if msg.GetCtl() == message.LoginCtl {
 					if len(c.Config.Password) > 0 {
 						if msg.Auth == sendAuth || !util.ComparePassword(msg.Auth, c.Config.Password) {
 							res <- errors.New("deny server")

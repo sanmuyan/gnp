@@ -3,7 +3,7 @@ package server
 import (
 	"context"
 	"github.com/sirupsen/logrus"
-	message2 "gnp/pkg/message"
+	"gnp/pkg/message"
 	"gnp/pkg/util"
 	"net"
 	"sync"
@@ -21,11 +21,11 @@ type TCPProxy struct {
 	ctlConn       net.Conn
 	userConnCh    chan net.Conn
 	tunnelConnCh  chan net.Conn
-	newServiceMsg *message2.Message
+	newServiceMsg *message.Message
 	ctx           context.Context
 }
 
-func NewTCPProxy(ctx context.Context, ctl *Control, newServiceMsg *message2.Message, ctlConn net.Conn) *TCPProxy {
+func NewTCPProxy(ctx context.Context, ctl *Control, newServiceMsg *message.Message, ctlConn net.Conn) *TCPProxy {
 	return &TCPProxy{
 		ctx:           ctx,
 		Control:       ctl,
@@ -82,11 +82,11 @@ func (p *TCPProxy) watchTunnel() {
 func (p *TCPProxy) handelUserConn(conn net.Conn) {
 	// 把用户连接加入队列并通知客户端建立隧道连接
 	logrus.Infof("[%s] request %s", p.newServiceMsg.Service.Network+p.newServiceMsg.Service.ProxyPort, conn.RemoteAddr())
-	err := p.Control.SendCtl(p.ctlConn, message2.NewMessage(&message2.Options{
+	err := p.Control.SendCtl(p.ctlConn, message.NewMessage(&message.Options{
 		Service:   p.newServiceMsg.Service,
 		SessionID: p.newServiceMsg.SessionID,
 		Data:      []byte(conn.RemoteAddr().String()),
-	}), message2.NewTunnelCtl)
+	}), message.NewTunnelCtl)
 	if err != nil {
 		logrus.Errorf("send ctl message %+v %v", p.newServiceMsg, err)
 	}
@@ -102,11 +102,11 @@ type UDPProxy struct {
 	tunnelAddrPool        sync.Map
 	tunnelAddrClean       sync.Map
 	tunnelAddrCleanTicker *time.Ticker
-	newServiceMsg         *message2.Message
+	newServiceMsg         *message.Message
 	ctx                   context.Context
 }
 
-func NewUDPProxy(ctx context.Context, ctl *Control, newServiceMsg *message2.Message, ctlConn net.Conn) *UDPProxy {
+func NewUDPProxy(ctx context.Context, ctl *Control, newServiceMsg *message.Message, ctlConn net.Conn) *UDPProxy {
 	return &UDPProxy{
 		ctx:                   ctx,
 		Control:               ctl,
@@ -139,7 +139,7 @@ func (p *UDPProxy) Close() {
 
 func (p *UDPProxy) handleConn() {
 	// 读取并尝试序列化消息
-	message2.ReadOrUnmarshalUDP(p.conn, func(msg *message2.Message, addr *net.UDPAddr, err error, errType int) (exit bool) {
+	message.ReadOrUnmarshalUDP(p.conn, func(msg *message.Message, addr *net.UDPAddr, err error, errType int) (exit bool) {
 		switch errType {
 		case 1:
 			logrus.Debugln("read proxy data", err)
@@ -155,17 +155,17 @@ func (p *UDPProxy) handleConn() {
 	})
 }
 
-func (p *UDPProxy) handelUserConn(msg *message2.Message, remoteAddr *net.UDPAddr) {
+func (p *UDPProxy) handelUserConn(msg *message.Message, remoteAddr *net.UDPAddr) {
 	// 通知客户端建立隧道连接 并把用户请求数据写入隧道
 	sessionID := remoteAddr.String()
 	tunnelAddr, ok := p.tunnelAddrPool.Load(sessionID)
 	if !ok {
 		p.tunnelAddrWaiting.Store(sessionID, true)
 		logrus.Infof("[%s] request %s", p.newServiceMsg.Service.Network+p.newServiceMsg.Service.ProxyPort, remoteAddr.String())
-		err := p.Control.SendCtl(p.ctlConn, message2.NewMessage(&message2.Options{
+		err := p.Control.SendCtl(p.ctlConn, message.NewMessage(&message.Options{
 			Service:   p.newServiceMsg.Service,
 			SessionID: sessionID,
-		}), message2.NewTunnelCtl)
+		}), message.NewTunnelCtl)
 		if err != nil {
 			logrus.Errorf("send ctl message %+v %v", p.newServiceMsg, err)
 			return
@@ -195,15 +195,15 @@ func (p *UDPProxy) handelUserConn(msg *message2.Message, remoteAddr *net.UDPAddr
 	}
 }
 
-func (p *UDPProxy) handelTunnelConn(msg *message2.Message, remoteAddr *net.UDPAddr) {
+func (p *UDPProxy) handelTunnelConn(msg *message.Message, remoteAddr *net.UDPAddr) {
 	switch msg.Ctl {
-	case message2.NewTunnelCtl:
+	case message.NewTunnelCtl:
 		// 收到隧道连接地址
 		id, ok := p.tunnelAddrCh.Load(msg.SessionID)
 		if ok {
 			id.(chan *net.UDPAddr) <- remoteAddr
 		}
-	case message2.TunnelDataConnCtl:
+	case message.TunnelDataConnCtl:
 		// 隧道数据返回给用户
 		addr, _ := net.ResolveUDPAddr("udp", msg.SessionID)
 		_, err := p.conn.WriteTo(msg.Data, addr)
@@ -211,7 +211,7 @@ func (p *UDPProxy) handelTunnelConn(msg *message2.Message, remoteAddr *net.UDPAd
 			logrus.Errorln("write to user data", err)
 		}
 		defer p.tunnelAddrClean.Store(msg.SessionID, time.Now().Unix())
-	case message2.TunnelConnClose:
+	case message.TunnelConnClose:
 		_, ok := p.tunnelAddrClean.Load(msg.SessionID)
 		if ok {
 			logrus.Debugln("tunnel close", msg.SessionID)
@@ -233,7 +233,7 @@ func (p *UDPProxy) clean() {
 }
 
 func (p *UDPProxy) connSet() {
-	_ = p.conn.SetWriteBuffer(message2.UDPConnBufferSize)
+	_ = p.conn.SetWriteBuffer(message.UDPConnBufferSize)
 }
 
 func (p *UDPProxy) removeSession(id any) {
