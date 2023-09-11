@@ -6,6 +6,9 @@ import (
 	"github.com/spf13/viper"
 	"gnp/pkg/config"
 	"gnp/server"
+	"log"
+	"net/http"
+	_ "net/http/pprof"
 	"path"
 	"runtime"
 )
@@ -24,12 +27,11 @@ var rootCmd = &cobra.Command{
 var configFile string
 
 const (
-	logLevel         = 4
-	serverBind       = "0.0.0.0"
-	serverPort       = 6000
-	allowPorts       = "1-65535"
-	udpTunnelTimeOut = 30
-	clientTimeOut    = 30
+	logLevel    = 4
+	serverBind  = "0.0.0.0"
+	serverPort  = 6000
+	allowPorts  = "1-65535"
+	connTimeout = 3600
 )
 
 func init() {
@@ -52,8 +54,7 @@ func initConfig() error {
 	})
 
 	viper.SetConfigName("config")
-	viper.SetDefault("udp_tunnel_time_out", udpTunnelTimeOut)
-	viper.SetDefault("client_time_out", clientTimeOut)
+	viper.SetDefault("conn_timeout", connTimeout)
 
 	if len(configFile) > 0 {
 		viper.SetConfigFile(configFile)
@@ -69,12 +70,18 @@ func initConfig() error {
 	_ = viper.BindPFlag("password", rootCmd.Flags().Lookup("password"))
 	_ = viper.BindPFlag("allow_ports", rootCmd.Flags().Lookup("allow-ports"))
 
-	err := viper.Unmarshal(&config.ClientConf)
+	err := viper.Unmarshal(&config.ServerConf)
 	if err != nil {
 		return err
 	}
-	logrus.SetLevel(logrus.Level(config.ClientConf.LogLevel))
-	if logrus.Level(config.ClientConf.LogLevel) >= logrus.DebugLevel {
+	logrus.SetLevel(logrus.Level(config.ServerConf.LogLevel))
+	if logrus.Level(config.ServerConf.LogLevel) >= logrus.DebugLevel {
+		go func() {
+			err := http.ListenAndServe("0.0.0.0:7777", nil)
+			if err != nil {
+				log.Fatalf("Debug error: %v", err)
+			}
+		}()
 		logrus.SetReportCaller(true)
 	}
 	return nil
@@ -89,7 +96,7 @@ func Execute() {
 		if err != nil {
 			logrus.Fatal(err)
 		}
-		logrus.Debugf("config %+v", config.ClientConf)
+		logrus.Debugf("config %+v", config.ServerConf)
 		server.Run()
 	}
 }

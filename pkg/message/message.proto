@@ -7,10 +7,15 @@ message Service {
   string Network = 3;
 }
 
-message Options {
-  int32  Ctl = 1;
-  string  Auth = 3;
+message ControlMessage {
+  int32 Ctl = 1;
+  string  ServiceID = 2;
+  string SessionID = 3;
   bytes   Data = 5;
-  string  SessionID = 4;
   Service Service = 6;
+  string  Token = 7;
+}
+
+service ControlServices {
+  rpc HandleMessage(stream ControlMessage) returns (stream ControlMessage);
 }

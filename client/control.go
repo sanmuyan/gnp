@@ -1,58 +1,45 @@
 package client
 
 import (
+	"bufio"
 	"context"
-	"errors"
 	"github.com/sirupsen/logrus"
 	"gnp/pkg/config"
 	"gnp/pkg/message"
 	"gnp/pkg/util"
+	"io"
 	"net"
 	"time"
 )
 
-type Control struct {
-	ctlConn     net.Conn
-	Config      config.ServerConfig
-	done        chan bool
-	keepAliveCh chan bool
+type Client struct {
 	ctx         context.Context
 	cancel      context.CancelFunc
+	Config      config.ClientConfig
+	ctlConn     net.Conn
+	keepAliveCh chan struct{}
 }
 
-func NewControl(config config.ServerConfig) *Control {
-	return &Control{
+func NewClient(ctx context.Context, cancel context.CancelFunc, config config.ClientConfig, ctlConn net.Conn) *Client {
+	return &Client{
+		ctx:         ctx,
+		cancel:      cancel,
 		Config:      config,
-		done:        make(chan bool),
-		keepAliveCh: make(chan bool),
-	}
-}
-func (c *Control) registryService() {
-	// 请求服务器注册代理服务
-	for _, item := range c.Config.Services {
-		err := c.SendCtl(c.ctlConn, message.NewMessage(&message.Options{
-			Auth: util.CreatePassword(c.Config.Password),
-			Service: &message.Service{
-				ProxyPort: item.ProxyPort,
-				LocalAddr: item.LocalAddr,
-				Network:   item.Network,
-			},
-			SessionID: item.Network + item.ProxyPort,
-		}), message.NewServiceCtl)
-		if err != nil {
-			logrus.Errorln("write control message", err)
-		}
-		logrus.Infoln("registry service", item.Network, net.JoinHostPort(c.Config.ServerHost, item.ProxyPort), item.LocalAddr)
+		ctlConn:     ctlConn,
+		keepAliveCh: make(chan struct{}),
 	}
 }
 
-func (c *Control) keepAlive() {
+func (c *Client) keepAlive() {
 	t := time.NewTicker(time.Second * time.Duration(c.Config.KeepAlivePeriod))
 	defer t.Stop()
+	defer c.cancel()
 	var count int
 	go func() {
 		for range t.C {
-			_ = c.SendCtl(c.ctlConn, message.NewMessage(&message.Options{}), message.KeepAliveCtl)
+			_ = c.sendMsg(&message.ControlMessage{
+				Ctl: message.KeepAlive,
+			})
 		}
 	}()
 	for {
@@ -63,7 +50,6 @@ func (c *Control) keepAlive() {
 			count += 1
 			if count > c.Config.KeepAliveMaxFailed {
 				logrus.Errorln("keep alive max timeout")
-				c.cancel()
 				return
 			}
 		case <-c.keepAliveCh:
@@ -72,122 +58,96 @@ func (c *Control) keepAlive() {
 	}
 }
 
-func (c *Control) SendCtl(conn net.Conn, msg *message.Message, ctl int32) error {
-	msg.Ctl = ctl
-	_, err := conn.Write(msg.EncodeTCP())
-	if err != nil {
-		return err
-	}
-	return nil
-}
-
-func (c *Control) controller(msg *message.Message) {
-	// 处理服务端控制消息
-	switch msg.GetCtl() {
-	case message.ServiceReadyCtl:
-		logrus.Infoln("service ready", msg.Service.Network, msg.Service.ProxyPort)
-	case message.NewTunnelCtl:
-		// 新建隧道连接
-		switch msg.Service.Network {
-		case "tcp":
-			NewTCPTunnel(c, msg).Process()
-		case "udp":
-			NewUDPTunnel(c, msg).Process()
+func (c *Client) registryService() {
+	// 请求服务器注册代理服务
+	for _, item := range c.Config.Services {
+		msg := &message.ControlMessage{
+			Ctl: message.NewService,
+			Service: &message.Service{
+				ProxyPort: item.ProxyPort,
+				LocalAddr: item.LocalAddr,
+				Network:   item.Network,
+			},
+			ServiceID: item.Network + item.ProxyPort,
 		}
-	case message.KeepAliveCtl:
-		c.keepAliveCh <- true
-	}
-}
-
-func (c *Control) handelConn() {
-	defer func() {
-		_ = c.ctlConn.Close()
-		c.cancel()
-	}()
-	logrus.Infoln("connect server", net.JoinHostPort(c.Config.ServerHost, c.Config.ServerPort))
-	message.ReadMessageTCP(c.ctlConn, func(msg *message.Message, err error) (exit bool) {
+		err := c.sendMsg(msg)
 		if err != nil {
-			logrus.Debugln("read control message", err)
-			return true
+			logrus.Errorf("[%s] send control message %v", msg.GetService(), err)
 		}
-		logrus.Tracef("control message %+v", msg)
-		go c.controller(msg)
-		return false
-	})
-}
-
-func (c *Control) close() {
-	c.done <- true
-}
-
-func (c *Control) login() error {
-	sendAuth := util.CreatePassword(c.Config.Password)
-	_, err := c.ctlConn.Write(message.NewMessage(&message.Options{
-		Ctl:  message.LoginCtl,
-		Auth: sendAuth,
-	}).EncodeTCP())
-	if err != nil {
-		return err
+		logrus.Infof("[%s] registry service %s", msg.GetServiceID(), item.LocalAddr)
 	}
-	res := make(chan error)
-	go func() {
-		message.ReadMessageTCP(c.ctlConn, func(msg *message.Message, err error) (exit bool) {
+}
+
+func (c *Client) auth(msg *message.ControlMessage) bool {
+	if c.Config.Token == msg.GetToken() {
+		return true
+	}
+	return false
+}
+
+func (c *Client) sendMsg(msg *message.ControlMessage) error {
+	msg.Token = c.Config.Token
+	return message.WriteTCP(msg, c.ctlConn)
+}
+
+func (c *Client) controller() {
+	// 处理服务端控制消息
+	reader := bufio.NewReaderSize(c.ctlConn, message.ReadBufferSize)
+	for {
+		select {
+		case <-c.ctx.Done():
+			logrus.Infof("control exit, %v", c.ctx.Err())
+			return
+		default:
+			msg, err := message.ReadTCP(reader)
 			if err != nil {
-				res <- err
-				return true
-			}
-			if msg != nil {
-				if msg.GetCtl() == message.LoginCtl {
-					if len(c.Config.Password) > 0 {
-						if msg.Auth == sendAuth || !util.ComparePassword(msg.Auth, c.Config.Password) {
-							res <- errors.New("deny server")
-						}
-					}
-					res <- nil
+				if err != io.EOF {
+					logrus.Infof("server connect closed %v", err)
+				} else {
+					logrus.Errorf("read ctl message %v", err)
 				}
+				return
 			}
-			return true
-		})
-	}()
-	select {
-	case <-time.After(time.Second * time.Duration(c.Config.KeepAlivePeriod)):
-	case err = <-res:
-		return err
+			if !c.auth(msg) {
+				logrus.Warnf("auth failed server=%s", c.ctlConn.RemoteAddr().String())
+				continue
+			}
+			switch msg.GetCtl() {
+			case message.ServiceReady:
+				logrus.Infof("[%s] registry service ready", msg.GetServiceID())
+			case message.NewTunnel:
+				switch msg.GetService().GetNetwork() {
+				case "tcp":
+					go NewTCPTunnel(NewTunnel(c, msg)).NewTunnel()
+				case "udp":
+					go NewUDPTunnel(NewTunnel(c, msg)).NewTunnel()
+				}
+			case message.KeepAlive:
+				c.keepAliveCh <- struct{}{}
+			}
+		}
 	}
-	return errors.New("timeout")
 }
 
-func (c *Control) start() {
+func start() {
 	ctx, cancel := context.WithCancel(context.Background())
-	c.ctx = ctx
-	c.cancel = cancel
-	defer c.close()
-	conn, err := util.CreateDialTCP(net.JoinHostPort(c.Config.ServerHost, c.Config.ServerPort))
+	defer cancel()
+	addr := net.JoinHostPort(config.ClientConf.ServerHost, config.ClientConf.ServerPort)
+	conn, err := util.CreateDialTCP(addr)
 	if err != nil {
-		logrus.Errorln("server connect", err)
+		logrus.Errorf("connect server %s %v", addr, err)
 		return
 	}
-	c.ctlConn = conn
-	if err := c.login(); err != nil {
-		logrus.Errorln("login", err)
-		_ = c.ctlConn.Close()
-		return
-	}
-	go c.keepAlive()
-	go c.registryService()
-	go c.handelConn()
-	<-ctx.Done()
+	client := NewClient(ctx, cancel, config.ClientConf, conn)
+	go client.registryService()
+	go client.keepAlive()
+	client.controller()
 }
 
 func Run() {
-	c := NewControl(config.ServerConf)
-	go c.start()
 	for {
-		select {
-		case <-c.done:
-			logrus.Infoln("retry connect server", net.JoinHostPort(c.Config.ServerHost, c.Config.ServerPort))
-			time.Sleep(time.Second * 1)
-			go c.start()
-		}
+		logrus.Infof("connect server %s:%s", config.ClientConf.ServerHost, config.ClientConf.ServerPort)
+		start()
+		time.Sleep(time.Second)
 	}
 }

@@ -1,13 +1,20 @@
 package config
 
+type Service struct {
+	ProxyPort string `mapstructure:"proxy_port"`
+	LocalAddr string `mapstructure:"local_addr"`
+	Network   string `mapstructure:"network"`
+}
+
 type ClientConfig struct {
-	LogLevel         int    `mapstructure:"log_level"`
-	ServerBind       string `mapstructure:"server_bind"`
-	ServerPort       string `mapstructure:"server_port"`
-	Password         string `mapstructure:"password"`
-	AllowPorts       string `mapstructure:"allow_ports"`
-	UDPTunnelTimeOut int    `mapstructure:"udp_tunnel_time_out"`
-	ClientTimeOut    int    `mapstructure:"client_time_out"`
+	LogLevel           int       `mapstructure:"log_level"`
+	ServerHost         string    `mapstructure:"server_host"`
+	ServerPort         string    `mapstructure:"server_port"`
+	Services           []Service `mapstructure:"services"`
+	Token              string    `mapstructure:"token"`
+	KeepAlivePeriod    int       `mapstructure:"keep_alive_period"`
+	KeepAliveMaxFailed int       `mapstructure:"keep_alive_max_failed"`
+	ConnTimeout        int       `mapstructure:"conn_timeout"`
 }
 
 var ClientConf ClientConfig

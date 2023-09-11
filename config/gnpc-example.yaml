@@ -1,11 +1,9 @@
 # 日志级别 0-6
 log_level: 4
-# 会话保持间隔
-keep_alive_period: 1
-# 会话保持最大错误
-keep_alive_max_failed: 3
-# 鉴权密码
-password: 123456
+# 连接空闲超时时间
+conn_timeout: 3600
+# 鉴权 token
+token: 123456
 # 服务端地址
 server_host: 127.0.0.1
 # 服务端端口

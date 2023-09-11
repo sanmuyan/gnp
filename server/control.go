@@ -1,126 +1,153 @@
 package server
 
 import (
+	"bufio"
 	"context"
+	"github.com/sanmuyan/dao/network"
 	"github.com/sirupsen/logrus"
 	"gnp/pkg/config"
 	"gnp/pkg/message"
 	"gnp/pkg/util"
+	"io"
 	"net"
+	"sync"
 )
 
-type Control struct {
-	Config         config.ClientConfig
-	userConnPool   map[string]chan net.Conn
-	tunnelConnPool map[string]chan net.Conn
+type Server struct {
+	Config         config.ServerConfig
+	tunnelConnPool map[string]chan *TunnelConn
+	mx             sync.Mutex
 }
 
-func NewControl(config config.ClientConfig) *Control {
-	return &Control{
+func NewServer(config config.ServerConfig) *Server {
+	return &Server{
 		Config:         config,
-		userConnPool:   make(map[string]chan net.Conn),
-		tunnelConnPool: make(map[string]chan net.Conn),
+		tunnelConnPool: make(map[string]chan *TunnelConn),
 	}
 }
 
-func (c *Control) SendCtl(conn net.Conn, msg *message.Message, ctl int32) error {
-	msg.Ctl = ctl
-	_, err := conn.Write(msg.EncodeTCP())
-	if err != nil {
-		return err
-	}
-	return nil
+func (s *Server) SendMsg(conn net.Conn, msg *message.ControlMessage) error {
+	msg.Token = s.Config.Token
+	return message.WriteTCP(msg, conn)
 }
 
-func (c *Control) handelService(ctx context.Context, conn net.Conn, msg *message.Message) {
-	if len(c.Config.Password) > 0 && !util.ComparePassword(msg.Auth, c.Config.Password) {
-		logrus.Warnln("deny client", conn.RemoteAddr())
+func (s *Server) auth(msg *message.ControlMessage) bool {
+	if s.Config.Token == msg.GetToken() {
+		return true
+	}
+	return false
+}
+
+func (s *Server) Clean(serviceID string) {
+	s.mx.Lock()
+	defer s.mx.Unlock()
+	delete(s.tunnelConnPool, serviceID)
+}
+
+func (s *Server) handelService(ctx context.Context, msg *message.ControlMessage, conn net.Conn) {
+	if msg.GetServiceID() == "" {
+		logrus.Warnf("registry service serviceID is empty client=%s", conn.RemoteAddr().String())
 		return
 	}
-	logrus.Infoln("new service", msg.Service.Network, msg.Service.ProxyPort, conn.RemoteAddr())
-	if !util.IsAllowPort(c.Config.AllowPorts, msg.Service.ProxyPort) {
-		logrus.Warnln("deny service", msg.Service.ProxyPort)
+	logrus.Infof("[%s] registry service client=%s", msg.GetServiceID(), conn.RemoteAddr().String())
+	if !network.IsAllowPort(s.Config.AllowPorts, msg.GetService().GetProxyPort()) {
+		logrus.Warnf("[%s] not allowed port", msg.GetServiceID())
 		return
 	}
-	switch msg.Service.Network {
+	if _, ok := s.tunnelConnPool[msg.GetServiceID()]; ok {
+		logrus.Warnf("[%s] service is already registered", msg.GetServiceID())
+		return
+	}
+	switch msg.GetService().GetNetwork() {
 	case "tcp":
-		tcpProxy := NewTCPProxy(ctx, c, msg, conn)
-		c.tunnelConnPool[msg.SessionID] = tcpProxy.tunnelConnCh
-		c.userConnPool[msg.SessionID] = tcpProxy.userConnCh
-		err := c.SendCtl(conn, msg, message.ServiceReadyCtl)
-		if err != nil {
-			logrus.Errorf("send ctl message %+v %v", msg, err)
-		}
-		go tcpProxy.Start()
+		proxy := NewTCPProxy(NewProxyServer(ctx, s, conn, msg))
+		s.tunnelConnPool[msg.GetServiceID()] = proxy.tunnelConnCh
+		go proxy.Start()
 	case "udp":
-		udpProxy := NewUDPProxy(ctx, c, msg, conn)
-		err := c.SendCtl(conn, msg, message.ServiceReadyCtl)
-		if err != nil {
-			logrus.Errorf("send ctl message %+v %v", msg, err)
-		}
-		go udpProxy.Start()
+		proxy := NewUDPProxy(NewProxyServer(ctx, s, conn, msg))
+		go proxy.Start()
+	}
+	readyMsg := &message.ControlMessage{
+		Ctl:       message.ServiceReady,
+		Service:   msg.GetService(),
+		ServiceID: msg.GetServiceID(),
+		SessionID: msg.GetSessionID(),
+	}
+	err := s.SendMsg(conn, readyMsg)
+	if err != nil {
+		logrus.Errorf("[%s] send ctl message %v", msg.ServiceID, err)
+		return
 	}
 }
 
-func (c *Control) controller(conn net.Conn) {
-	// 处理客户端控制消息
+func (s *Server) controller(conn net.Conn) {
 	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	message.ReadMessageTCP(conn, func(msg *message.Message, err error) (exit bool) {
-		if err != nil {
-			logrus.Debugln("read control message", err)
-			_ = conn.Close()
-			return true
-		}
-		logrus.Tracef("control message %+v client %s", msg, conn.RemoteAddr())
-		switch msg.GetCtl() {
-		case message.NewServiceCtl:
-			// 处理客户端服务代理注册
-			_ = util.SetReadDeadline(conn)(c.Config.ClientTimeOut)
-			c.handelService(ctx, conn, msg)
-		case message.NewTunnelCtl:
-			// TCP隧道连接加入对应服务队列
-			c.tunnelConnPool[msg.SessionID] <- conn
-			return true
-		case message.KeepAliveCtl:
-			// 处理客户端会话保持
-			_ = util.SetReadDeadline(conn)(c.Config.ClientTimeOut)
-			_ = c.SendCtl(conn, msg, message.KeepAliveCtl)
-		case message.LoginCtl:
-			if len(c.Config.Password) > 0 && !util.ComparePassword(msg.Auth, c.Config.Password) {
-				logrus.Warnln("deny client", conn.RemoteAddr())
-				_ = conn.Close()
+	defer func() {
+		cancel()
+	}()
+	reader := bufio.NewReaderSize(conn, message.ReadBufferSize)
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		default:
+			msg, err := message.ReadTCP(reader)
+			if err != nil {
+				if err != io.EOF {
+					logrus.Infof("server connect closed %v", err)
+				} else {
+					logrus.Errorf("read ctl message %v", err)
+				}
 				return
 			}
-			msg.Auth = util.CreatePassword(c.Config.Password)
-			_ = c.SendCtl(conn, msg, message.LoginCtl)
+			if !s.auth(msg) {
+				logrus.Warnf("auth failed client=%s", conn.RemoteAddr().String())
+				continue
+			}
+			switch msg.GetCtl() {
+			case message.NewTunnel:
+				// 隧道连接加入对应代理队列
+				if _, ok := s.tunnelConnPool[msg.GetServiceID()]; !ok {
+					logrus.Warnf("[%s] service is not registered", msg.GetServiceID())
+					return
+				}
+				s.tunnelConnPool[msg.GetServiceID()] <- NewTunnelConn(conn, msg, nil)
+				return
+			case message.NewService:
+				// 处理客户端服务代理注册
+				s.handelService(ctx, msg, conn)
+				continue
+			case message.KeepAlive:
+				err := s.SendMsg(conn, &message.ControlMessage{
+					Ctl: message.KeepAlive,
+				})
+				if err != nil {
+					logrus.Errorf("send keep alive message %v", err)
+				}
+				continue
+			}
+
 		}
-		return false
-	})
+	}
 }
 
-func (c *Control) handelControlConn(listener net.Listener) {
+func (s *Server) handleConn(listener net.Listener) {
 	for {
 		conn, err := listener.Accept()
 		if err != nil {
-			logrus.Errorln("accept server connect", err)
-			return
+			logrus.Errorf("accept conn %v", err)
+			continue
 		}
-		go c.controller(conn)
+		go s.controller(conn)
 	}
-}
-
-func (c *Control) start() {
-	listener, err := util.CreateListenTCP(c.Config.ServerBind, c.Config.ServerPort)
-	if err != nil {
-		logrus.Fatalln("server listen", err)
-	}
-	logrus.Infoln("server running", net.JoinHostPort(c.Config.ServerBind, c.Config.ServerPort))
-	c.handelControlConn(listener)
 }
 
 func Run() {
-	s := NewControl(config.ClientConf)
-	go s.start()
-	select {}
+	listener, err := util.CreateListenTCP(config.ServerConf.ServerBind, config.ServerConf.ServerPort)
+	if err != nil {
+		logrus.Fatalf("server listen %v", err)
+	}
+	logrus.Infof("server running %s", net.JoinHostPort(config.ServerConf.ServerBind, config.ServerConf.ServerPort))
+	s := NewServer(config.ServerConf)
+	s.handleConn(listener)
 }

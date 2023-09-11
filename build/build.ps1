@@ -1,48 +1,42 @@
-New-Item -ItemType Directory -Path gnp -Force
-New-Item -ItemType Directory -Path pkg -Force
-$sourcePath = "$(Get-Location)\gnp\"
-$destinationPath = "$(Get-Location)\pkg"
-function zip {
-    param (
-        $sourcePath,
-        $destinationPath
-    )
-    Compress-Archive -Path $sourcePath -DestinationPath $destinationPath -Force
+$commands = @{
+    "client" = "gnpc"
+    "server" = "gnps"
+}
+$build_data = @{
+    "linux"   = @{
+        "arch_list" = @("amd64")
+        "suffix"    = ""
+    }
+    "darwin"  = @{
+        "arch_list" = @("amd64", "arm64")
+        "suffix"    = ""
+    }
+    "windows" = @{
+        "arch_list" = @("amd64")
+        "suffix"    = ".exe"
+    }
 }
 
+Remove-Item .\gnp\* -Recurse
+Remove-Item .\pkg\* -Recurse
 
-$os="linux"
-$arch_list=@("amd64", "arm")
-
-foreach ($arch in $arch_list) {
-    $env:GOOS=$os
-    $env:GOARCH=$arch
-    go build -o .\gnp\gnpc ..\cmd\client
-    go build -o .\gnp\gnps ..\cmd\server
-    zip $sourcePath $destinationPath\gnp-$os-$arch.zip
-    Remove-Item -Path $sourcePath\* -Force
-}
-
-$os = "darwin"
-$arch_list = @("amd64", "arm64")
-
-foreach ($arch in $arch_list) {
-    $env:GOOS = $os
-    $env:GOARCH = $arch
-    go build -o .\gnp\gnpc ..\cmd\client
-    go build -o .\gnp\gnps ..\cmd\server
-    zip $sourcePath $destinationPath\gnp-$os-$arch.zip
-    Remove-Item -Path $sourcePath\* -Force
-}
-
-$os = "windows"
-$arch_list = @("amd64")
-
-foreach ($arch in $arch_list) {
-    $env:GOOS = $os
-    $env:GOARCH = $arch
-    go build -o .\gnp\gnpc.exe ..\cmd\client
-    go build -o .\gnp\gnps.exe ..\cmd\server
-    zip $sourcePath $destinationPath\gnp-$os-$arch.zip
-    Remove-Item -Path $sourcePath\* -Force
+foreach ($os in $build_data.Keys) {
+    foreach ($arch in $build_data[$os].arch_list) {
+        $env:GOOS=$os
+        $env:GOARCH=$arch
+        foreach ($command in $commands.Keys) {
+            $suffix = $build_data[$os].suffix
+            $path = ".\gnp\$os\$arch\gnp"
+            $bin = "$path\$command$suffix"
+            $command_name = $commands[$command]
+            $upx_bin = "$path\$command_name$suffix"
+            $pkg = "pkg\gnp-$os-$arch.zip"
+            
+            go build -ldflags "-w -s" -o  $bin ../cmd/$command
+            upx -1 -o $upx_bin $bin
+            Remove-Item $bin
+            Copy-Item ..\config\*example* $path
+            Compress-Archive -Path $path -DestinationPath $pkg -Force
+        }
+    }
 }

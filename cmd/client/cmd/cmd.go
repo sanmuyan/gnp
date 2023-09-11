@@ -7,6 +7,9 @@ import (
 	"github.com/spf13/viper"
 	"gnp/client"
 	"gnp/pkg/config"
+	"log"
+	"net/http"
+	_ "net/http/pprof"
 	"path"
 	"runtime"
 	"strings"
@@ -27,7 +30,7 @@ var configFile string
 
 const (
 	logLevel           = 4
-	udpTunnelTimeOut   = 30
+	connTimout         = 3600
 	keepAlivePeriod    = 2
 	KeepAliveMaxFailed = 3
 	serverHost         = "127.0.0.1"
@@ -54,7 +57,7 @@ func initConfig() error {
 	})
 
 	viper.SetConfigName("config")
-	viper.SetDefault("udp_tunnel_time_out", udpTunnelTimeOut)
+	viper.SetDefault("conn_timeout", connTimout)
 	viper.SetDefault("keep_alive_period", keepAlivePeriod)
 	viper.SetDefault("keep_alive_max_failed", KeepAliveMaxFailed)
 
@@ -70,7 +73,7 @@ func initConfig() error {
 	_ = viper.BindPFlag("server_port", rootCmd.Flags().Lookup("server-port"))
 	_ = viper.BindPFlag("password", rootCmd.Flags().Lookup("password"))
 
-	err := viper.Unmarshal(&config.ServerConf)
+	err := viper.Unmarshal(&config.ClientConf)
 	if err != nil {
 		return err
 	}
@@ -83,7 +86,7 @@ func initConfig() error {
 	for _, service := range services {
 		parts := strings.Split(service, ",")
 		if len(parts) == 3 {
-			config.ServerConf.Services = append(config.ServerConf.Services, config.Service{
+			config.ClientConf.Services = append(config.ClientConf.Services, config.Service{
 				Network:   parts[0],
 				LocalAddr: parts[1],
 				ProxyPort: parts[2],
@@ -91,20 +94,26 @@ func initConfig() error {
 		}
 	}
 
-	logrus.SetLevel(logrus.Level(config.ServerConf.LogLevel))
-	if logrus.Level(config.ServerConf.LogLevel) >= logrus.DebugLevel {
+	logrus.SetLevel(logrus.Level(config.ClientConf.LogLevel))
+	if logrus.Level(config.ClientConf.LogLevel) >= logrus.DebugLevel {
+		go func() {
+			err := http.ListenAndServe("0.0.0.0:7778", nil)
+			if err != nil {
+				log.Fatalf("Debug error: %v", err)
+			}
+		}()
 		logrus.SetReportCaller(true)
 	}
 
-	if len(config.ServerConf.ServerHost) == 0 {
+	if len(config.ClientConf.ServerHost) == 0 {
 		return errors.New("server host is empty")
 	}
 
-	if len(config.ServerConf.ServerPort) == 0 {
+	if len(config.ClientConf.ServerPort) == 0 {
 		return errors.New("server port is empty")
 	}
 
-	if len(config.ServerConf.Services) == 0 {
+	if len(config.ClientConf.Services) == 0 {
 		return errors.New("services is empty")
 	}
 
@@ -120,7 +129,7 @@ func Execute() {
 		if err != nil {
 			logrus.Fatal(err)
 		}
-		logrus.Debugf("config %+v", config.ServerConf)
+		logrus.Debugf("config %+v", config.ClientConf)
 		client.Run()
 	}
 }

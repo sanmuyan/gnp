@@ -14,6 +14,6 @@ FROM centos:7
 ENV LANG=en_US.utf8
 
 WORKDIR /workspace
-COPY --from=builder /workspace /workspace
+COPY --sessionID=builder /workspace /workspace
 
 CMD ["/bin/bash", "-c", "/workspace/${APP_BIN} -c ./conf/config-dev.yaml"]

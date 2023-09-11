@@ -2,150 +2,116 @@ package message
 
 import (
 	"bufio"
-	"github.com/sirupsen/logrus"
-	"gnp/pkg/util"
+	"errors"
+	"github.com/sanmuyan/dao/network"
 	"google.golang.org/protobuf/proto"
+	"io"
 	"net"
-	"sync"
 )
 
 //go:generate protoc --go_out=../ *.proto
 
 const (
-	KeepAliveCtl      = 1
-	NewTunnelCtl      = 2
-	NewServiceCtl     = 3
-	ServiceReadyCtl   = 4
-	TunnelDataConnCtl = 5
-	TunnelConnClose   = 6
-	LoginCtl          = 7
-	BufferSize        = 4096 * 8
-	MTU               = 1500
-	UDPDataSize       = MTU * 2
-	UDPConnBufferSize = 1024 * 8
+	NewTunnel = iota + 10000
+	NewService
+	ServiceReady
+	KeepAlive
+	NewDataConn
 )
 
-type Message struct {
-	*Options
+const (
+	MTU             = 1500
+	ReadBufferSize  = 4096 * 8
+	WriteBufferSize = 1024 * 8
+	BufDataSize     = MTU * 2
+)
+
+func Unmarshal(data []byte) (*ControlMessage, error) {
+	msg := new(ControlMessage)
+	return msg, proto.Unmarshal(data, msg)
 }
 
-type Call func(msg *Message, err error) (exit bool)
-
-var Pool = &sync.Pool{
-	New: func() any {
-		return new(Message)
-	},
+func Marshal(msg *ControlMessage) ([]byte, error) {
+	return proto.Marshal(msg)
 }
 
-func NewMessage(o *Options) *Message {
-	m := Pool.Get().(*Message)
-	m = &Message{
-		Options: o,
+func WriteTCP(msg *ControlMessage, conn net.Conn) error {
+	bp, err := Marshal(msg)
+	if err != nil {
+		return err
 	}
-	return m
+	be, err := network.Encode(bp)
+	if err != nil {
+		return err
+	}
+	_, err = conn.Write(be)
+	return err
 }
 
-func (m *Message) EncodeTCP() []byte {
-	ba, _ := proto.Marshal(m)
-	bs, _ := util.Encode(ba)
-	return bs
+func ReadTCP(reader *bufio.Reader) (*ControlMessage, error) {
+	be, err := network.Decode(reader)
+	if err != nil {
+		return nil, err
+	}
+	return Unmarshal(be)
 }
 
-func (m *Message) EncodeUDP() []byte {
-	ba, _ := proto.Marshal(m)
-	return ba
+func WriteUDP(msg *ControlMessage, conn net.Conn) error {
+	bp, err := Marshal(msg)
+	if err != nil {
+		return err
+	}
+	_, err = conn.Write(bp)
+	return err
 }
 
-func ReadMessageTCP(conn net.Conn, call Call) {
-	reader := bufio.NewReaderSize(conn, BufferSize)
+func WriteToUDP(msg *ControlMessage, conn *net.UDPConn, remoteAddr *net.UDPAddr) error {
+	bp, err := Marshal(msg)
+	if err != nil {
+		return err
+	}
+	_, err = conn.WriteToUDP(bp, remoteAddr)
+	return err
+}
+
+func ReadUDP(conn net.Conn) (*ControlMessage, error) {
+	buf := make([]byte, BufDataSize)
+	n, err := conn.Read(buf)
+	if err != nil {
+		return nil, err
+	}
+	return Unmarshal(buf[:n])
+}
+
+func Copy(dst, src net.Conn, resetTimeout func()) error {
+	buf := make([]byte, BufDataSize)
+	var err error
 	for {
-		bs, err := util.Decode(reader)
-		if err != nil {
-			if err == util.BufOverflow {
-				reader.Reset(bufio.NewReaderSize(conn, BufferSize))
-				logrus.Warnln("buf overflow reset reader")
-				continue
-			} else {
-				call(nil, err)
-				return
+		nr, er := src.Read(buf)
+		if nr > 0 {
+			nw, ew := dst.Write(buf[0:nr])
+			if nw < 0 || nr < nw {
+				nw = 0
+				if ew == nil {
+					ew = errors.New("invalid write")
+				}
+			}
+			if ew != nil {
+				err = ew
+				break
+			}
+			if nr != nw {
+				err = io.ErrShortWrite
+				break
 			}
 		}
-
-		m := Pool.Get().(*Message)
-		m.Options = &Options{}
-		err = proto.Unmarshal(bs, m)
-		if err != nil {
-			call(nil, err)
-			return
+		if er != nil {
+			if er != io.EOF {
+				err = er
+			}
+			break
 		}
-		if call(m, err) {
-			return
-		}
+		resetTimeout()
 	}
-}
-
-func ReadAndUnmarshalUDP(conn *net.UDPConn, call Call) {
-	reader := bufio.NewReaderSize(conn, BufferSize)
-	for {
-		buf := make([]byte, UDPDataSize)
-		n, err := reader.Read(buf)
-		if err != nil {
-			call(nil, err)
-			return
-		}
-
-		m := Pool.Get().(*Message)
-		m.Options = &Options{}
-		err = proto.Unmarshal(buf[:n], m)
-		if err != nil {
-			call(nil, err)
-			return
-		}
-		if call(m, nil) {
-			return
-		}
-	}
-}
-
-func ReadDataUDP(conn *net.UDPConn, call Call) {
-	reader := bufio.NewReaderSize(conn, BufferSize)
-	for {
-		buf := make([]byte, UDPDataSize)
-		n, err := reader.Read(buf)
-		if err != nil {
-			call(nil, err)
-			return
-		}
-
-		m := Pool.Get().(*Message)
-		m.Options = &Options{
-			Data: buf[:n],
-		}
-		if call(m, nil) {
-			return
-		}
-	}
-}
-
-func ReadOrUnmarshalUDP(conn *net.UDPConn, call func(msg *Message, addr *net.UDPAddr, err error, errType int) (exit bool)) {
-	for {
-		buf := make([]byte, UDPDataSize)
-		n, addr, err := conn.ReadFromUDP(buf)
-		if err != nil {
-			call(nil, nil, err, 1)
-			return
-		}
-
-		m := Pool.Get().(*Message)
-		m.Options = &Options{}
-		err = proto.Unmarshal(buf[:n], m)
-		if err != nil {
-			m.Data = buf[:n]
-			call(m, addr, err, 2)
-			continue
-		}
-		if call(m, addr, nil, 0) {
-			return
-		}
-	}
+	return err
 }
