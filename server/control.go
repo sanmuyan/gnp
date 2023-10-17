@@ -3,7 +3,7 @@ package server
 import (
 	"bufio"
 	"context"
-	"github.com/sanmuyan/dao/network"
+	"github.com/sanmuyan/xpkg/xnet"
 	"github.com/sirupsen/logrus"
 	"gnp/pkg/config"
 	"gnp/pkg/message"
@@ -50,7 +50,7 @@ func (s *Server) handelService(ctx context.Context, msg *message.ControlMessage,
 		return
 	}
 	logrus.Infof("[%s] registry service client=%s", msg.GetServiceID(), conn.RemoteAddr().String())
-	if !network.IsAllowPort(s.Config.AllowPorts, msg.GetService().GetProxyPort()) {
+	if !xnet.IsAllowPort(s.Config.AllowPorts, msg.GetService().GetProxyPort()) {
 		logrus.Warnf("[%s] not allowed port", msg.GetServiceID())
 		return
 	}

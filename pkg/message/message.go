@@ -3,7 +3,7 @@ package message
 import (
 	"bufio"
 	"errors"
-	"github.com/sanmuyan/dao/network"
+	"github.com/sanmuyan/xpkg/xnet"
 	"google.golang.org/protobuf/proto"
 	"io"
 	"net"
@@ -40,7 +40,7 @@ func WriteTCP(msg *ControlMessage, conn net.Conn) error {
 	if err != nil {
 		return err
 	}
-	be, err := network.Encode(bp)
+	be, err := xnet.Encode(bp)
 	if err != nil {
 		return err
 	}
@@ -49,7 +49,7 @@ func WriteTCP(msg *ControlMessage, conn net.Conn) error {
 }
 
 func ReadTCP(reader *bufio.Reader) (*ControlMessage, error) {
-	be, err := network.Decode(reader)
+	be, err := xnet.Decode(reader)
 	if err != nil {
 		return nil, err
 	}
