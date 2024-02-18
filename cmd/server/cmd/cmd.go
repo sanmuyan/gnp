@@ -39,7 +39,7 @@ func init() {
 	rootCmd.Flags().IntP("log-level", "l", logLevel, "log level")
 	rootCmd.Flags().StringP("server-bind", "s", serverBind, "server bind address")
 	rootCmd.Flags().IntP("server-port", "p", serverPort, "server bind port")
-	rootCmd.Flags().String("password", "", "password")
+	rootCmd.Flags().String("token", "", "token")
 	rootCmd.Flags().String("allow-ports", allowPorts, "allow ports")
 }
 
@@ -67,7 +67,7 @@ func initConfig() error {
 	_ = viper.BindPFlag("log_level", rootCmd.Flags().Lookup("log-level"))
 	_ = viper.BindPFlag("server_bind", rootCmd.Flags().Lookup("server-bind"))
 	_ = viper.BindPFlag("server_port", rootCmd.Flags().Lookup("server-port"))
-	_ = viper.BindPFlag("password", rootCmd.Flags().Lookup("password"))
+	_ = viper.BindPFlag("token", rootCmd.Flags().Lookup("token"))
 	_ = viper.BindPFlag("allow_ports", rootCmd.Flags().Lookup("allow-ports"))
 
 	err := viper.Unmarshal(&config.ServerConf)

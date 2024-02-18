@@ -3,7 +3,7 @@ module gnp
 go 1.21.0
 
 require (
-	github.com/sanmuyan/dao v0.3.6
+	github.com/sanmuyan/xpkg v0.1.1
 	github.com/sirupsen/logrus v1.9.0
 	github.com/spf13/cobra v1.7.0
 	github.com/spf13/viper v1.15.0
