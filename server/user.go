@@ -7,25 +7,39 @@ import (
 	"time"
 )
 
+// UserConnProvider 用户连接处理提供者
 type UserConnProvider interface {
+	// IsTunnelAvailable 隧道连接是否可用
 	IsTunnelAvailable() bool
+	// SetTunnelConn 设置隧道连接
 	SetTunnelConn(*TunnelConn)
+	// GetCreateTime 获取用户连接创建时间
 	GetCreateTime() int64
+	// GetSessionID 获取用户连接的会话 ID
 	GetSessionID() string
+	// Close 关闭用户连接
 	Close()
+	// UserToTunnel 用户数据转发到隧道
 	UserToTunnel()
+	// TunnelToUser 隧道数据转发到用户
 	TunnelToUser()
 }
 
+// UserConn 处理用户连接
 type UserConn struct {
-	ctx               context.Context
-	cancel            context.CancelFunc
-	createTime        int64
+	ctx         context.Context
+	cancel      context.CancelFunc
+	proxyServer *ProxyServer
+	// createTime 用户连接创建时间
+	createTime int64
+	// isTunnelAvailable 隧道连接是否可用
 	isTunnelAvailable bool
-	sessionID         string
-	oneClose          sync.Once
-	proxyServer       *ProxyServer
-	tunnelConn        *TunnelConn
+	// sessionID 用户连接的会话 ID
+	sessionID string
+	// oneClose 避免重复关闭用户连接引发异常
+	oneClose sync.Once
+	// tunnelConn 隧道连接信息
+	tunnelConn *TunnelConn
 }
 
 func NewUserConn(ctx context.Context, cancel context.CancelFunc, proxyServer *ProxyServer, sessionID string) *UserConn {

@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"errors"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
@@ -120,7 +121,7 @@ func initConfig() error {
 	return nil
 }
 
-func Execute() {
+func Execute(ctx context.Context) {
 	if err := rootCmd.Execute(); err != nil {
 		logrus.Fatal(err)
 	}
@@ -130,6 +131,6 @@ func Execute() {
 			logrus.Fatal(err)
 		}
 		logrus.Debugf("config %+v", config.ClientConf)
-		client.Run()
+		client.Run(ctx)
 	}
 }

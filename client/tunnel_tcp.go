@@ -5,7 +5,6 @@ import (
 	"gnp/pkg/message"
 	"gnp/pkg/util"
 	"net"
-	"sync"
 )
 
 type TCPTunnel struct {
@@ -21,7 +20,7 @@ func NewTCPTunnel(tunnel *Tunnel) *TCPTunnel {
 func (t *TCPTunnel) NewTunnel() {
 	t.newTunnelConnF = t.newTunnelConn
 	t.newLocalConnF = t.newLocalConn
-	t.tunnelToUserF = t.tunnelToLocal
+	t.tunnelToLocalF = t.tunnelToLocal
 	t.localToTunnelF = t.localToTunnel
 	t.process()
 }
@@ -63,19 +62,17 @@ func (t *TCPTunnel) newLocalConn() bool {
 	return true
 }
 
-func (t *TCPTunnel) tunnelToLocal(wg *sync.WaitGroup) {
-	defer wg.Done()
+func (t *TCPTunnel) tunnelToLocal() {
 	defer t.Close()
-	err := message.Copy(t.localConn, t.tunnelConn, t.ResetTimeout)
+	err := message.Copy(t.ctx, t.localConn, t.tunnelConn, t.ResetTimeout)
 	if err != nil {
 		logrus.Tracef("[%s] tunnel to user %v", t.ctlMsg.GetServiceID(), err)
 	}
 }
 
-func (t *TCPTunnel) localToTunnel(wg *sync.WaitGroup) {
-	defer wg.Done()
+func (t *TCPTunnel) localToTunnel() {
 	defer t.Close()
-	err := message.Copy(t.tunnelConn, t.localConn, t.ResetTimeout)
+	err := message.Copy(t.ctx, t.tunnelConn, t.localConn, t.ResetTimeout)
 	if err != nil {
 		logrus.Tracef("[%s] user to tunnel %v", t.ctlMsg.GetServiceID(), err)
 	}

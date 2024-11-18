@@ -2,19 +2,30 @@ package server
 
 import (
 	"context"
+	"errors"
 	"github.com/sirupsen/logrus"
 	"gnp/pkg/message"
 	"gnp/pkg/util"
 	"net"
 )
 
+// UDPProxy 处理 UDP 代理
 type UDPProxy struct {
 	*ProxyServer
+	// conn 监听代理端口，处理用户连接
 	conn *net.UDPConn
+	// tunnelData 接收隧道数据的队列
+	tunnelData chan *TunnelData
+	// tunnelConn UDP 隧道数据连接
+	tunnelConn *net.UDPConn
 }
 
-func NewUDPProxy(proxyServer *ProxyServer) *UDPProxy {
-	return &UDPProxy{ProxyServer: proxyServer}
+func NewUDPProxy(proxyServer *ProxyServer, tunnelConn *net.UDPConn) *UDPProxy {
+	return &UDPProxy{
+		ProxyServer: proxyServer,
+		tunnelData:  make(chan *TunnelData, 10),
+		tunnelConn:  tunnelConn,
+	}
 }
 
 func (p *UDPProxy) Start() {
@@ -28,6 +39,7 @@ func (p *UDPProxy) Start() {
 	p.connSet()
 	go p.CleanUserConn()
 	go p.WatchTunnel()
+	go p.WatchTunnelData()
 	go p.handleConn()
 	<-p.ctx.Done()
 }
@@ -43,6 +55,9 @@ func (p *UDPProxy) handleConn() {
 		buf := make([]byte, message.BufDataSize)
 		n, remoteAddr, err := p.conn.ReadFromUDP(buf)
 		if err != nil {
+			if errors.Is(err, net.ErrClosed) {
+				return
+			}
 			logrus.Errorf("[%s] read sessionID proxy %v", p.ctlMsg.GetServiceID(), err)
 			return
 		}
@@ -50,53 +65,49 @@ func (p *UDPProxy) handleConn() {
 	}
 }
 
+// controller 处理用户连接
 func (p *UDPProxy) controller(data []byte, remoteAddr *net.UDPAddr) {
+	// 判断是否存在用户连接，如果存在直接转发数据到隧道
 	sessionID := remoteAddr.String()
 	if userConn, ok := p.userConnPool.Load(sessionID); ok {
 		p.handelUserConn(data, userConn.(*UDPUserConn))
 		return
 	}
-	msg, err := message.Unmarshal(data)
-	if err != nil || msg.GetCtl() < 10000 || msg.GetServiceID() != p.ctlMsg.GetServiceID() {
-		userConn, ok := p.userConnPool.Load(sessionID)
-		if !ok {
-			cxt, cancel := context.WithCancel(p.ctx)
-			_userConn := NewUDPUserConn(NewUserConn(cxt, cancel, p.ProxyServer, sessionID), p.conn, remoteAddr)
-			p.userConnPool.Store(sessionID, _userConn)
-			p.NewTunnel(_userConn.GetSessionID())
+	// 如果不存在，把用户连接存入用户连接池，然后通知客户端新建隧道连接
+	cxt, cancel := context.WithCancel(p.ctx)
+	userConn := NewUDPUserConn(NewUserConn(cxt, cancel, p.ProxyServer, sessionID), p.conn, p.tunnelConn, remoteAddr)
+	p.userConnPool.Store(sessionID, userConn)
+	p.NewTunnel(userConn.GetSessionID())
 
-			go _userConn.waitTimeout()
-			_userConn.ResetTimeout()
+	// 设置连接池超时
+	go userConn.waitTimeout()
+	userConn.ResetTimeout()
 
-			p.handelUserConn(data, _userConn)
-			return
-		}
-		p.handelUserConn(data, userConn.(*UDPUserConn))
-		return
-	}
-	p.handelTunnelConn(msg, remoteAddr)
+	p.handelUserConn(data, userConn)
 }
 
-func (p *UDPProxy) handelTunnelConn(msg *message.ControlMessage, remoteAddr *net.UDPAddr) {
-	switch msg.GetCtl() {
-	case message.NewTunnel:
-		p.tunnelConnCh <- NewTunnelConn(nil, msg, remoteAddr)
-	case message.NewDataConn:
-		userConn, ok := p.userConnPool.Load(msg.GetSessionID())
-		if !ok {
-			logrus.Errorf("[%s] user conn not found sessionID:=%s", p.ctlMsg.GetServiceID(), msg.GetSessionID())
-			return
-		}
-		_userConn := userConn.(*UDPUserConn)
-		if _userConn.GetSessionID() != msg.GetSessionID() {
-			logrus.Warnf("[%s] user sessionID:=%s, tunnel sessionID:=%s", p.ctlMsg.GetServiceID(), _userConn.GetSessionID(), msg.GetSessionID())
-			return
-		}
+func (p *UDPProxy) WatchTunnelData() {
+	for {
 		select {
-		case <-_userConn.ctx.Done():
+		case <-p.ctx.Done():
 			return
-		default:
-			_userConn.tunnelCh <- msg.Data
+		case data := <-p.tunnelData:
+			userConn, ok := p.userConnPool.Load(data.dataMsg.GetSessionID())
+			if !ok {
+				logrus.Errorf("[%s] user conn not found sessionID:=%s", p.ctlMsg.GetServiceID(), data.dataMsg.GetSessionID())
+				return
+			}
+			_userConn := userConn.(*UDPUserConn)
+			if _userConn.GetSessionID() != data.dataMsg.GetSessionID() {
+				logrus.Warnf("[%s] user sessionID:=%s, tunnel sessionID:=%s", p.ctlMsg.GetServiceID(), _userConn.GetSessionID(), data.dataMsg.GetSessionID())
+				return
+			}
+			select {
+			case <-_userConn.ctx.Done():
+				return
+			default:
+				_userConn.tunnelCh <- data.dataMsg.Data
+			}
 		}
 	}
 }

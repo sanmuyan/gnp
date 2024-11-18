@@ -5,7 +5,6 @@ import (
 	"gnp/pkg/message"
 	"gnp/pkg/util"
 	"net"
-	"sync"
 )
 
 type UDPTunnel struct {
@@ -21,7 +20,7 @@ func NewUDPTunnel(tunnel *Tunnel) *UDPTunnel {
 func (t *UDPTunnel) NewTunnel() {
 	t.newTunnelConnF = t.newTunnelConn
 	t.newLocalConnF = t.newLocalConn
-	t.tunnelToUserF = t.tunnelToLocal
+	t.tunnelToLocalF = t.tunnelToLocal
 	t.localToTunnelF = t.localToTunnel
 	t.process()
 }
@@ -31,7 +30,7 @@ func (t *UDPTunnel) newTunnelConn() bool {
 		logrus.Errorf("[%s] sessionID is empty", t.ctlMsg.GetServiceID())
 		return false
 	}
-	tunnelConn, err := util.CreateDialUDP(net.JoinHostPort(t.Config.ServerHost, t.ctlMsg.GetService().GetProxyPort()))
+	tunnelConn, err := util.CreateDialUDP(net.JoinHostPort(t.Config.ServerHost, t.Config.ServerPort))
 	if err != nil {
 		logrus.Errorf("[%s] tunnel conn connect %v", t.ctlMsg.GetServiceID(), err)
 		return false
@@ -62,48 +61,56 @@ func (t *UDPTunnel) newLocalConn() bool {
 	return true
 }
 
-func (t *UDPTunnel) tunnelToLocal(wg *sync.WaitGroup) {
-	defer wg.Done()
+func (t *UDPTunnel) tunnelToLocal() {
 	defer t.Close()
 	for {
-		msg, err := message.ReadUDP(t.tunnelConn)
-		if err != nil {
-			logrus.Tracef("[%s] tunnel to user %v", t.ctlMsg.GetServiceID(), err)
+		select {
+		case <-t.ctx.Done():
 			return
+		default:
+			msg, err := message.ReadUDP(t.tunnelConn)
+			if err != nil {
+				logrus.Tracef("[%s] tunnel to user %v", t.ctlMsg.GetServiceID(), err)
+				return
+			}
+			if msg.GetCtl() != message.NewTunnelData || msg.GetServiceID() != t.ctlMsg.GetServiceID() || msg.GetSessionID() != t.ctlMsg.GetSessionID() {
+				logrus.Warnf("[%s] tunnel data invalid", t.ctlMsg.GetServiceID())
+				continue
+			}
+			_, err = t.localConn.Write(msg.Data)
+			if err != nil {
+				logrus.Tracef("[%s] tunnel to user %v", t.ctlMsg.GetServiceID(), err)
+				return
+			}
+			t.ResetTimeout()
 		}
-		if msg.GetCtl() != message.NewDataConn || msg.GetServiceID() != t.ctlMsg.GetServiceID() || msg.GetSessionID() != t.ctlMsg.GetSessionID() {
-			logrus.Warnf("[%s] tunnel data invalid", t.ctlMsg.GetServiceID())
-			continue
-		}
-		_, err = t.localConn.Write(msg.Data)
-		if err != nil {
-			logrus.Tracef("[%s] tunnel to user %v", t.ctlMsg.GetServiceID(), err)
-			return
-		}
-		t.ResetTimeout()
 	}
 }
 
-func (t *UDPTunnel) localToTunnel(wg *sync.WaitGroup) {
-	defer wg.Done()
+func (t *UDPTunnel) localToTunnel() {
 	defer t.Close()
 	for {
-		buf := make([]byte, message.BufDataSize)
-		n, err := t.localConn.Read(buf)
-		if err != nil {
-			logrus.Tracef("[%s] user to tunnel %v", t.ctlMsg.GetServiceID(), err)
+		select {
+		case <-t.ctx.Done():
 			return
+		default:
+			buf := make([]byte, message.BufDataSize)
+			n, err := t.localConn.Read(buf)
+			if err != nil {
+				logrus.Tracef("[%s] user to tunnel %v", t.ctlMsg.GetServiceID(), err)
+				return
+			}
+			err = message.WriteUDP(&message.ControlMessage{
+				Ctl:       message.NewTunnelData,
+				ServiceID: t.ctlMsg.GetServiceID(),
+				SessionID: t.ctlMsg.GetSessionID(),
+				Data:      buf[:n],
+			}, t.tunnelConn)
+			if err != nil {
+				logrus.Tracef("[%s] user to tunnel %v", t.ctlMsg.GetServiceID(), err)
+				return
+			}
+			t.ResetTimeout()
 		}
-		err = message.WriteUDP(&message.ControlMessage{
-			Ctl:       message.NewDataConn,
-			ServiceID: t.ctlMsg.GetServiceID(),
-			SessionID: t.ctlMsg.GetSessionID(),
-			Data:      buf[:n],
-		}, t.tunnelConn)
-		if err != nil {
-			logrus.Tracef("[%s] user to tunnel %v", t.ctlMsg.GetServiceID(), err)
-			return
-		}
-		t.ResetTimeout()
 	}
 }

@@ -8,6 +8,18 @@ import (
 	"sync"
 )
 
+type TunnelData struct {
+	remoteAddr *net.UDPAddr
+	dataMsg    *message.ControlMessage
+}
+
+func NewTunnelData(dataMsg *message.ControlMessage, remoteAddr *net.UDPAddr) *TunnelData {
+	return &TunnelData{
+		dataMsg:    dataMsg,
+		remoteAddr: remoteAddr,
+	}
+}
+
 type TunnelConn struct {
 	conn       net.Conn
 	remoteAddr *net.UDPAddr

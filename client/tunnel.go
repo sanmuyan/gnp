@@ -9,21 +9,34 @@ import (
 	"sync"
 )
 
+// Tunnel 隧道数据转发
 type Tunnel struct {
 	*Client
-	ctlMsg         *message.ControlMessage
-	tunnelConn     net.Conn
-	localConn      net.Conn
-	cancel         context.CancelFunc
-	onceClose      sync.Once
+	ctx    context.Context
+	cancel context.CancelFunc
+	// ctlMsg 隧道连接控制消息
+	ctlMsg *message.ControlMessage
+	// tunnelConn 隧道连接
+	tunnelConn net.Conn
+	// localConn 本地服务连接
+	localConn net.Conn
+	// onceClose 避免重复关闭引发异常
+	onceClose sync.Once
+	// tunnelToLocalF 新建隧道连接
 	newTunnelConnF func() bool
-	newLocalConnF  func() bool
-	tunnelToUserF  func(*sync.WaitGroup)
-	localToTunnelF func(*sync.WaitGroup)
+	// localToTunnelF 新建本地连接
+	newLocalConnF func() bool
+	// tunnelToLocalF 转发隧道数据到本地服务
+	tunnelToLocalF func()
+	// localToTunnelF 转发本地服务数据到隧道
+	localToTunnelF func()
 }
 
-func NewTunnel(control *Client, ctlMsg *message.ControlMessage) *Tunnel {
+func NewTunnel(ctx context.Context, control *Client, ctlMsg *message.ControlMessage) *Tunnel {
+	ctx, cancel := context.WithCancel(ctx)
 	return &Tunnel{
+		ctx:    ctx,
+		cancel: cancel,
 		Client: control,
 		ctlMsg: ctlMsg,
 	}
@@ -36,13 +49,11 @@ func (t *Tunnel) ResetTimeout() {
 
 func (t *Tunnel) Close() {
 	t.onceClose.Do(func() {
+		t.cancel()
 		if t.localConn != nil {
 			_ = t.localConn.Close()
 		}
 		if t.tunnelConn != nil {
-			if t.cancel != nil {
-				t.cancel()
-			}
 			_ = t.tunnelConn.Close()
 		}
 	})
@@ -50,7 +61,6 @@ func (t *Tunnel) Close() {
 
 func (t *Tunnel) process() {
 	defer t.Close()
-	logrus.Infof("[%s] new request sessionID:=%s", t.ctlMsg.GetServiceID(), t.ctlMsg.GetSessionID())
 	if !t.newTunnelConnF() {
 		return
 	}
@@ -58,12 +68,10 @@ func (t *Tunnel) process() {
 		return
 	}
 	t.ResetTimeout()
-	wg := new(sync.WaitGroup)
-	wg.Add(2)
 	// 转发隧道数据到本地服务
-	go t.tunnelToUserF(wg)
+	go t.tunnelToLocalF()
 	// 转发本地服务数据到隧道
-	go t.localToTunnelF(wg)
-	wg.Wait()
+	go t.localToTunnelF()
+	<-t.ctx.Done()
 	logrus.Debugf("[%s] close tunnel sessionID=%s", t.ctlMsg.GetServiceID(), t.ctlMsg.GetSessionID())
 }

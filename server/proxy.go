@@ -15,12 +15,17 @@ type ProxyProvider interface {
 	Start()
 }
 
+// ProxyServer 代理服务，处理用户访问代理
 type ProxyServer struct {
 	*Server
-	ctx          context.Context
-	ctlMsg       *message.ControlMessage
-	ctlConn      net.Conn
+	ctx context.Context
+	// ctlMsg 代理服务注册信息
+	ctlMsg *message.ControlMessage
+	// ctlConn 服务器控制端连接，用于发送新建隧道请求
+	ctlConn net.Conn
+	// userConnPool 存储用户连接池
 	userConnPool sync.Map
+	// 新建隧道连接通知队列
 	tunnelConnCh chan *TunnelConn
 }
 
