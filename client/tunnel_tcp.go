@@ -64,7 +64,7 @@ func (t *TCPTunnel) newLocalConn() bool {
 
 func (t *TCPTunnel) tunnelToLocal() {
 	defer t.Close()
-	err := message.Copy(t.ctx, t.localConn, t.tunnelConn, t.ResetTimeout)
+	err := message.Copy(t.localConn, t.tunnelConn, t.ResetTimeout)
 	if err != nil {
 		logrus.Tracef("[%s] tunnel to user %v", t.ctlMsg.GetServiceID(), err)
 	}
@@ -72,7 +72,7 @@ func (t *TCPTunnel) tunnelToLocal() {
 
 func (t *TCPTunnel) localToTunnel() {
 	defer t.Close()
-	err := message.Copy(t.ctx, t.tunnelConn, t.localConn, t.ResetTimeout)
+	err := message.Copy(t.tunnelConn, t.localConn, t.ResetTimeout)
 	if err != nil {
 		logrus.Tracef("[%s] user to tunnel %v", t.ctlMsg.GetServiceID(), err)
 	}

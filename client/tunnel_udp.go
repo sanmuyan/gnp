@@ -64,53 +64,43 @@ func (t *UDPTunnel) newLocalConn() bool {
 func (t *UDPTunnel) tunnelToLocal() {
 	defer t.Close()
 	for {
-		select {
-		case <-t.ctx.Done():
+		msg, err := message.ReadUDP(t.tunnelConn)
+		if err != nil {
+			logrus.Tracef("[%s] tunnel to user %v", t.ctlMsg.GetServiceID(), err)
 			return
-		default:
-			msg, err := message.ReadUDP(t.tunnelConn)
-			if err != nil {
-				logrus.Tracef("[%s] tunnel to user %v", t.ctlMsg.GetServiceID(), err)
-				return
-			}
-			if msg.GetCtl() != message.NewTunnelData || msg.GetServiceID() != t.ctlMsg.GetServiceID() || msg.GetSessionID() != t.ctlMsg.GetSessionID() {
-				logrus.Warnf("[%s] tunnel data invalid", t.ctlMsg.GetServiceID())
-				continue
-			}
-			_, err = t.localConn.Write(msg.Data)
-			if err != nil {
-				logrus.Tracef("[%s] tunnel to user %v", t.ctlMsg.GetServiceID(), err)
-				return
-			}
-			t.ResetTimeout()
 		}
+		if msg.GetCtl() != message.NewTunnelData || msg.GetServiceID() != t.ctlMsg.GetServiceID() || msg.GetSessionID() != t.ctlMsg.GetSessionID() {
+			logrus.Warnf("[%s] tunnel data invalid", t.ctlMsg.GetServiceID())
+			continue
+		}
+		_, err = t.localConn.Write(msg.Data)
+		if err != nil {
+			logrus.Tracef("[%s] tunnel to user %v", t.ctlMsg.GetServiceID(), err)
+			return
+		}
+		t.ResetTimeout()
 	}
 }
 
 func (t *UDPTunnel) localToTunnel() {
 	defer t.Close()
 	for {
-		select {
-		case <-t.ctx.Done():
+		buf := make([]byte, message.BufDataSize)
+		n, err := t.localConn.Read(buf)
+		if err != nil {
+			logrus.Tracef("[%s] user to tunnel %v", t.ctlMsg.GetServiceID(), err)
 			return
-		default:
-			buf := make([]byte, message.BufDataSize)
-			n, err := t.localConn.Read(buf)
-			if err != nil {
-				logrus.Tracef("[%s] user to tunnel %v", t.ctlMsg.GetServiceID(), err)
-				return
-			}
-			err = message.WriteUDP(&message.ControlMessage{
-				Ctl:       message.NewTunnelData,
-				ServiceID: t.ctlMsg.GetServiceID(),
-				SessionID: t.ctlMsg.GetSessionID(),
-				Data:      buf[:n],
-			}, t.tunnelConn)
-			if err != nil {
-				logrus.Tracef("[%s] user to tunnel %v", t.ctlMsg.GetServiceID(), err)
-				return
-			}
-			t.ResetTimeout()
 		}
+		err = message.WriteUDP(&message.ControlMessage{
+			Ctl:       message.NewTunnelData,
+			ServiceID: t.ctlMsg.GetServiceID(),
+			SessionID: t.ctlMsg.GetSessionID(),
+			Data:      buf[:n],
+		}, t.tunnelConn)
+		if err != nil {
+			logrus.Tracef("[%s] user to tunnel %v", t.ctlMsg.GetServiceID(), err)
+			return
+		}
+		t.ResetTimeout()
 	}
 }

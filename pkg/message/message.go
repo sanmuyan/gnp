@@ -2,7 +2,6 @@ package message
 
 import (
 	"bufio"
-	"context"
 	"errors"
 	"github.com/sanmuyan/xpkg/xnet"
 	"google.golang.org/protobuf/proto"
@@ -84,41 +83,35 @@ func ReadUDP(conn net.Conn) (*ControlMessage, error) {
 	return Unmarshal(buf[:n])
 }
 
-func Copy(ctx context.Context, dst, src net.Conn, resetTimeout func()) error {
+func Copy(dst, src net.Conn, resetTimeout func()) error {
 	buf := make([]byte, BufDataSize)
 	var err error
-Loop:
 	for {
-		select {
-		case <-ctx.Done():
-			return err
-		default:
-			nr, er := src.Read(buf)
-			if nr > 0 {
-				nw, ew := dst.Write(buf[0:nr])
-				if nw < 0 || nr < nw {
-					nw = 0
-					if ew == nil {
-						ew = errors.New("invalid write")
-					}
-				}
-				if ew != nil {
-					err = ew
-					break Loop
-				}
-				if nr != nw {
-					err = io.ErrShortWrite
-					break Loop
+		nr, er := src.Read(buf)
+		if nr > 0 {
+			nw, ew := dst.Write(buf[0:nr])
+			if nw < 0 || nr < nw {
+				nw = 0
+				if ew == nil {
+					ew = errors.New("invalid write")
 				}
 			}
-			if er != nil {
-				if er != io.EOF {
-					err = er
-				}
-				break Loop
+			if ew != nil {
+				err = ew
+				break
 			}
-			resetTimeout()
+			if nr != nw {
+				err = io.ErrShortWrite
+				break
+			}
 		}
+		if er != nil {
+			if er != io.EOF {
+				err = er
+			}
+			break
+		}
+		resetTimeout()
 	}
 	return err
 }

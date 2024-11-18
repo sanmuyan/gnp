@@ -24,7 +24,7 @@ func (u *TCPUserConn) ResetTimeout() {
 
 func (u *TCPUserConn) UserToTunnel() {
 	defer u.Close()
-	err := message.Copy(u.ctx, u.tunnelConn.conn, u.conn, u.ResetTimeout)
+	err := message.Copy(u.tunnelConn.conn, u.conn, u.ResetTimeout)
 	if err != nil {
 		logrus.Tracef("[%s] user to tunnel %v", u.proxyServer.ctlMsg.GetServiceID(), err)
 	}
@@ -32,7 +32,7 @@ func (u *TCPUserConn) UserToTunnel() {
 
 func (u *TCPUserConn) TunnelToUser() {
 	defer u.Close()
-	err := message.Copy(u.ctx, u.conn, u.tunnelConn.conn, u.ResetTimeout)
+	err := message.Copy(u.conn, u.tunnelConn.conn, u.ResetTimeout)
 	if err != nil {
 		logrus.Tracef("[%s] tunnel to user %v", u.proxyServer.ctlMsg.GetServiceID(), err)
 	}

@@ -107,14 +107,11 @@ func (c *Client) controller() {
 		default:
 			msg, err := message.ReadTCP(reader)
 			if err != nil {
-				if errors.Is(err, net.ErrClosed) {
+				if err == io.EOF || errors.Is(err, net.ErrClosed) {
+					logrus.Infof("server connect closed %s", c.ctlConn.RemoteAddr().String())
 					return
 				}
-				if err != io.EOF {
-					logrus.Infof("server connect closed %v", err)
-				} else {
-					logrus.Errorf("read ctl message %v", err)
-				}
+				logrus.Errorf("read ctl message %v", err)
 				return
 			}
 			if !c.auth(msg) {
@@ -150,13 +147,13 @@ func start(ctx context.Context) {
 		logrus.Errorf("connect server %s %v", addr, err)
 		return
 	}
+	defer func() {
+		_ = conn.Close()
+	}()
 	client := NewClient(ctx, cancel, config.ClientConf, conn)
 	go client.registryService()
 	go client.keepAlive()
 	go client.controller()
-	defer func() {
-		_ = conn.Close()
-	}()
 	<-ctx.Done()
 }
 

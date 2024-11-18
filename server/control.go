@@ -24,6 +24,7 @@ type Server struct {
 	// udpTunnelConn UDP 控制连接，接收 UDP 隧道控制消息，接收和发送隧道数据
 	udpTunnelConn *net.UDPConn
 	mx            sync.Mutex
+	wg            *sync.WaitGroup
 }
 
 func NewServer(config config.ServerConfig) *Server {
@@ -93,9 +94,16 @@ func (s *Server) handelService(ctx context.Context, msg *message.ControlMessage,
 
 // controller 处理服务端控制消息
 func (s *Server) controller(ctx context.Context, conn net.Conn) {
+	var isNewTunnelConn bool
+	s.wg.Add(1)
 	ctx, cancel := context.WithCancel(ctx)
 	defer func() {
+		// 如果是隧道连接不能关闭，否则隧道会断开
+		if !isNewTunnelConn {
+			_ = conn.Close()
+		}
 		cancel()
+		s.wg.Done()
 	}()
 	reader := bufio.NewReaderSize(conn, message.ReadBufferSize)
 	for {
@@ -105,11 +113,11 @@ func (s *Server) controller(ctx context.Context, conn net.Conn) {
 		default:
 			msg, err := message.ReadTCP(reader)
 			if err != nil {
-				if err != io.EOF {
-					logrus.Infof("server connect closed %v", err)
-				} else {
-					logrus.Errorf("read ctl message %v", err)
+				if err == io.EOF || errors.Is(err, net.ErrClosed) {
+					logrus.Infof("client connect closed %s", conn.RemoteAddr().String())
+					return
 				}
+				logrus.Errorf("read ctl message %v", err)
 				return
 			}
 			if !s.auth(msg) {
@@ -124,6 +132,8 @@ func (s *Server) controller(ctx context.Context, conn net.Conn) {
 					return
 				}
 				s.tunnelConnPool[msg.GetServiceID()] <- NewTunnelConn(conn, msg, nil)
+				isNewTunnelConn = true
+				// 隧道连接需要直接 return 退出循环，否则代理转发逻辑无法读取隧道连接
 				return
 			case message.NewService:
 				// 处理客户端服务代理注册
@@ -207,7 +217,9 @@ func Run(ctx context.Context) {
 		_ = listener.Close()
 		_ = s.udpTunnelConn.Close()
 	}()
+	s.wg = new(sync.WaitGroup)
 	go s.handleUDPConn()
 	go s.handleConn(ctx, listener)
 	<-ctx.Done()
+	s.wg.Wait()
 }

@@ -52,11 +52,12 @@ func (p *TCPProxy) handelConn() {
 			logrus.Errorf("[%s] accept proxy connect %s", p.ctlMsg.ServiceID, err)
 			return
 		}
-		go p.handelUserConn(conn)
+		go p.controller(conn)
 	}
 }
 
-func (p *TCPProxy) handelUserConn(conn net.Conn) {
+// controller 处理用户连接
+func (p *TCPProxy) controller(conn net.Conn) {
 	// 把用户连接存入用户连接池
 	ctx, cancel := context.WithCancel(p.ctx)
 	userConn := NewTCPUserConn(NewUserConn(ctx, cancel, p.ProxyServer, conn.RemoteAddr().String()), conn)
