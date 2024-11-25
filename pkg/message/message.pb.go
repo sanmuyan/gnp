@@ -88,12 +88,18 @@ type ControlMessage struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	Ctl       int32    `protobuf:"varint,1,opt,name=Ctl,proto3" json:"Ctl,omitempty"`
-	ServiceID string   `protobuf:"bytes,2,opt,name=ServiceID,proto3" json:"ServiceID,omitempty"`
-	SessionID string   `protobuf:"bytes,3,opt,name=SessionID,proto3" json:"SessionID,omitempty"`
-	Data      []byte   `protobuf:"bytes,5,opt,name=Data,proto3" json:"Data,omitempty"`
-	Service   *Service `protobuf:"bytes,6,opt,name=Service,proto3" json:"Service,omitempty"`
-	Token     string   `protobuf:"bytes,7,opt,name=Token,proto3" json:"Token,omitempty"`
+	// 消息类型
+	Ctl int32 `protobuf:"varint,1,opt,name=Ctl,proto3" json:"Ctl,omitempty"`
+	// 代理服务 ID
+	ServiceID string `protobuf:"bytes,2,opt,name=ServiceID,proto3" json:"ServiceID,omitempty"`
+	// UDP 会话 ID
+	SessionID string `protobuf:"bytes,3,opt,name=SessionID,proto3" json:"SessionID,omitempty"`
+	// 业务数据
+	Data []byte `protobuf:"bytes,5,opt,name=Data,proto3" json:"Data,omitempty"`
+	// 注册代理服务
+	Service *Service `protobuf:"bytes,6,opt,name=Service,proto3" json:"Service,omitempty"`
+	// 鉴权 Token
+	Token string `protobuf:"bytes,7,opt,name=Token,proto3" json:"Token,omitempty"`
 }
 
 func (x *ControlMessage) Reset() {

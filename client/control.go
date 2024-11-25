@@ -97,7 +97,8 @@ func (c *Client) sendMsg(msg *message.ControlMessage) error {
 // controller 处理服务端控制消息
 func (c *Client) controller() {
 	defer func() {
-		logrus.Info("control closed")
+		logrus.Info("client control closed")
+		c.cancel()
 	}()
 	reader := bufio.NewReaderSize(c.ctlConn, message.ReadBufferSize)
 	for {

@@ -8,11 +8,17 @@ message Service {
 }
 
 message ControlMessage {
+  // 消息类型
   int32 Ctl = 1;
+  // 代理服务 ID
   string  ServiceID = 2;
+  // UDP 会话 ID
   string SessionID = 3;
+  // 业务数据
   bytes   Data = 5;
+  // 注册代理服务
   Service Service = 6;
+  // 鉴权 Token
   string  Token = 7;
 }
 
