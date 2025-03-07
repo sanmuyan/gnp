@@ -139,7 +139,7 @@ func (c *Client) controller() {
 	}
 }
 
-func start(ctx context.Context) {
+func run(ctx context.Context) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	addr := net.JoinHostPort(config.ClientConf.ServerHost, config.ClientConf.ServerPort)
@@ -165,7 +165,7 @@ func Run(ctx context.Context) {
 			return
 		default:
 			logrus.Infof("connect server %s:%s", config.ClientConf.ServerHost, config.ClientConf.ServerPort)
-			start(ctx)
+			run(ctx)
 			time.Sleep(time.Second)
 		}
 	}

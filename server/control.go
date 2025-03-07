@@ -206,7 +206,7 @@ func Run(ctx context.Context) {
 	if err != nil {
 		logrus.Fatalf("server listen %v", err)
 	}
-	logrus.Infof("server running %s", net.JoinHostPort(config.ServerConf.ServerBind, config.ServerConf.ServerPort))
+	logrus.Infof("server listening on %s", net.JoinHostPort(config.ServerConf.ServerBind, config.ServerConf.ServerPort))
 	s := NewServer(config.ServerConf)
 	udpTunnelConn, err := util.CreateListenUDP(config.ServerConf.ServerBind, config.ServerConf.ServerPort)
 	if err != nil {
